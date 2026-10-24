@@ -48,6 +48,9 @@ On Vercel, configure `DATABASE_URL`, `DIRECT_URL`, `NEXTAUTH_SECRET`, and
 Use `npm run build`; it generates Prisma Client before building Next.js.
 Run `npm run db:migrate` once against the target database before serving traffic.
 Migrations are an explicit operation and do not run during every build.
+Functions run in Singapore (`sin1`), alongside this Supabase project's database.
+The transaction-pooler URL allows five Prisma connections per instance so that
+parallel dashboard queries and concurrent sign-ins do not queue behind one connection.
 
 Login continues to use NextAuth and the application's `User` table. Inventory
 queries run on the server through Prisma, so no Supabase browser client is needed.
