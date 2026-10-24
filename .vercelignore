@@ -1,6 +1,8 @@
 .git/
 .next/
 .vercel/
+supabase/.temp/
+supabase/.branches/
 node_modules/
 .env
 .env.*

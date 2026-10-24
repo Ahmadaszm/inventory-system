@@ -25,9 +25,9 @@ cp .env.example .env
 npm run db:generate
 npm run db:migrate
 
-# 4. Optional demo data: this DELETES existing inventory and users
-# Use only with a disposable demo database.
-npm run db:seed
+# 4. Set ADMIN_EMAIL and ADMIN_PASSWORD in your shell, then create an admin
+# ADMIN_PASSWORD must contain at least 16 characters.
+npm run db:admin
 
 # 5. Run
 npm run dev
@@ -54,10 +54,22 @@ queries run on the server through Prisma, so no Supabase browser client is neede
 The optional `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`
 values are available for future Supabase browser features.
 The initial migration enables RLS on inventory tables without public policies;
-browser Data API requests cannot access these tables. The supplied `postgres`
-connection can access them on the server.
+browser Data API requests cannot access these tables. The dedicated `inventory_app`
+login owns the inventory tables and accesses them on the server. It has no global
+superuser, role-creation, database-creation, or RLS-bypass privileges. Configure a
+separate login with `USAGE, CREATE` on the inventory schema for another project.
+Use that login's password in both URLs. The bundled public Supabase CA enables
+strict certificate verification and is included in Vercel function bundles.
+`.vercelignore` excludes local secret files. The second migration also protects
+Prisma's migration history with RLS.
 
-### Login Accounts
+### Demo Login Accounts (only after db:seed)
+
+For a disposable demonstration database, `npm run db:seed` creates the accounts
+below and sample inventory. It DELETES existing inventory and users. Production
+setup uses `db:admin`, which preserves existing data and never resets an existing
+administrator's password. Demo credentials are not shown on the login page.
+
 | Role                    | Email                        | Password     |
 |-------------------------|------------------------------|--------------|
 | System Admin            | admin@inventory.local        | Admin@123    |

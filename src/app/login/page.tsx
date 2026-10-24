@@ -5,8 +5,8 @@ import { useState } from "react"
 import { useRouter } from "next/navigation"
 
 export default function LoginPage() {
-  const [email, setEmail] = useState("admin@inventory.local")
-  const [password, setPassword] = useState("Admin@123")
+  const [email, setEmail] = useState("")
+  const [password, setPassword] = useState("")
   const [error, setError] = useState("")
   const [loading, setLoading] = useState(false)
   const router = useRouter()
@@ -15,16 +15,21 @@ export default function LoginPage() {
     e.preventDefault()
     setLoading(true)
     setError("")
-    const res = await signIn("credentials", {
-      email,
-      password,
-      redirect: false,
-    })
-    setLoading(false)
-    if (res?.error) {
-      setError("بيانات الدخول غير صحيحة أو الحساب غير نشط")
-    } else {
-      router.push("/dashboard")
+    try {
+      const res = await signIn("credentials", {
+        email,
+        password,
+        redirect: false,
+      })
+      if (!res?.ok) {
+        setError("بيانات الدخول غير صحيحة أو الحساب غير نشط")
+      } else {
+        router.push("/dashboard")
+      }
+    } catch {
+      setError("تعذّر الاتصال بالخادم. يرجى المحاولة مرة أخرى.")
+    } finally {
+      setLoading(false)
     }
   }
 
@@ -45,11 +50,13 @@ export default function LoginPage() {
 
         <form onSubmit={handleSubmit} className="space-y-5">
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1.5">
+            <label htmlFor="email" className="block text-sm font-medium text-slate-700 mb-1.5">
               البريد الإلكتروني
             </label>
             <input
               type="email"
+              id="email"
+              autoComplete="username"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               className="w-full border border-slate-300 rounded-lg px-4 py-2.5 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition"
@@ -58,11 +65,13 @@ export default function LoginPage() {
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1.5">
+            <label htmlFor="password" className="block text-sm font-medium text-slate-700 mb-1.5">
               كلمة المرور
             </label>
             <input
               type="password"
+              id="password"
+              autoComplete="current-password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               className="w-full border border-slate-300 rounded-lg px-4 py-2.5 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition"
@@ -86,12 +95,6 @@ export default function LoginPage() {
           </button>
         </form>
 
-        <div className="mt-8 pt-5 border-t text-xs text-slate-500 space-y-1">
-          <p className="font-medium text-slate-600 mb-2">حسابات تجريبية:</p>
-          <p><span className="font-mono">admin@inventory.local</span> / Admin@123</p>
-          <p><span className="font-mono">manager@inventory.local</span> / Manager@123</p>
-          <p><span className="font-mono">counter1@inventory.local</span> / Counter@123</p>
-        </div>
       </div>
     </div>
   )

@@ -18,6 +18,8 @@
 # production
 /build
 /.vercel/
+/supabase/.temp/
+/supabase/.branches/
 
 # misc
 .DS_Store
