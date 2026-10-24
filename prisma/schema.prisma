@@ -1,4 +1,4 @@
-// Prisma schema - SQLite compatible (no enums)
+// Prisma schema - Supabase PostgreSQL
 // QR Inventory & Physical Stocktaking System
 
 generator client {
@@ -6,8 +6,9 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
 // ==================== USERS & SECURITY ====================
@@ -138,6 +139,7 @@ model Item {
   movementItems   StockMovementItem[]
   countRecords    CountRecord[]
   adjustments     StockAdjustment[]
+  snapshots       BookSnapshot[]
 
   @@index([sku])
   @@index([sourceType])
@@ -364,6 +366,7 @@ model BookSnapshot {
   sessionId       String
   session         StocktakeSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
   itemId          String
+  item            Item     @relation(fields: [itemId], references: [id])
   batchId         String?
   locationId      String?
   bookQuantity    Decimal

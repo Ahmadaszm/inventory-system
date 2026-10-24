@@ -6,7 +6,7 @@ export async function createStocktakeSession(params: {
   title: string
   titleAr?: string
   scopeType: string
-  scopeJson?: any
+  scopeJson?: unknown
   countDate: Date
   isBlind?: boolean
   isSurprise?: boolean
@@ -241,17 +241,17 @@ export async function runReconciliation(sessionId: string) {
 
     results.push({
       itemId: snap.itemId,
-      sku: (snap as any).item?.sku,
-      nameEn: (snap as any).item?.nameEn,
-      nameAr: (snap as any).item?.nameAr,
+      sku: snap.item.sku,
+      nameEn: snap.item.nameEn,
+      nameAr: snap.item.nameAr,
       batchId: snap.batchId,
       locationId: snap.locationId,
       bookQty: book,
       physicalQty: physical,
       varianceQty: variance,
       variancePct: book !== 0 ? (variance / book) * 100 : null,
-      unitCost: Number(snap.unitCost || (snap as any).item?.costPerUnit || 0),
-      financialVariance: variance * Number(snap.unitCost || (snap as any).item?.costPerUnit || 0),
+      unitCost: Number(snap.unitCost ?? snap.item.costPerUnit),
+      financialVariance: variance * Number(snap.unitCost ?? snap.item.costPerUnit),
       status: variance === 0 ? "MATCHED" : variance < 0 ? "SHORTAGE" : "SURPLUS",
     })
     physicalMap.delete(key)

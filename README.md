@@ -19,18 +19,43 @@ cd inventory-system
 # 2. Install dependencies
 npm install
 
-# 3. Setup database (SQLite for development)
-npx prisma generate
-npx prisma db push
+# 3. Copy .env.example to .env and fill in your Supabase database password
+# Set NEXTAUTH_SECRET to a random value (at least 32 bytes).
+cp .env.example .env
+npm run db:generate
+npm run db:migrate
 
-# 4. Seed realistic data (items, batches, cartons with QR, users)
-npx tsx prisma/seed.ts
+# 4. Optional demo data: this DELETES existing inventory and users
+# Use only with a disposable demo database.
+npm run db:seed
 
 # 5. Run
 npm run dev
 ```
 
 Open **http://localhost:3000**
+
+### Supabase and Vercel
+
+The database is Supabase PostgreSQL. Prisma 5 uses `DATABASE_URL` for application
+queries through the transaction pooler on port 6543 and `DIRECT_URL` for migrations
+through the IPv4 session pooler on port 5432. Replace `[YOUR-PASSWORD]` in both URLs
+with the URL-encoded database password; the publishable key is not a database password.
+Keep `.env` local; `.env.example` documents the required variables.
+
+On Vercel, configure `DATABASE_URL`, `DIRECT_URL`, `NEXTAUTH_SECRET`, and
+`NEXTAUTH_URL` (your deployed HTTPS URL) in the project environment settings.
+Use `npm run build`; it generates Prisma Client before building Next.js.
+Run `npm run db:migrate` once against the target database before serving traffic.
+Migrations are an explicit operation and do not run during every build.
+
+Login continues to use NextAuth and the application's `User` table. Inventory
+queries run on the server through Prisma, so no Supabase browser client is needed.
+The optional `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`
+values are available for future Supabase browser features.
+The initial migration enables RLS on inventory tables without public policies;
+browser Data API requests cannot access these tables. The supplied `postgres`
+connection can access them on the server.
 
 ### Login Accounts
 | Role                    | Email                        | Password     |
@@ -113,9 +138,9 @@ inventory-system/
 
 ## Production Notes
 
-1. Change `NEXTAUTH_SECRET` in `.env`
-2. For PostgreSQL replace `DATABASE_URL` and change provider in `schema.prisma`
-3. Run `npx prisma migrate deploy` in production
+1. Set a strong `NEXTAUTH_SECRET` and the deployed `NEXTAUTH_URL`
+2. Configure both Supabase PostgreSQL connection strings from `.env.example`
+3. Run `npm run db:migrate` in production; do not run the destructive demo seed on existing data
 4. Add HTTPS and proper rate limiting
 5. Excel/PDF export endpoints can be completed with the already-included ExcelJS & PDFKit packages
 
