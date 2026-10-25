@@ -135,7 +135,7 @@ export async function recordCount(params: {
         sessionId: params.sessionId,
         taskId: params.taskId,
         qrCodeScanned: params.qrCode,
-        itemId: carton?.itemId || "UNKNOWN",
+        itemId: carton?.itemId ?? null,
         countedQty: params.countedQty,
         status: "DISCREPANCY",
         isUnknownQr: !carton,
