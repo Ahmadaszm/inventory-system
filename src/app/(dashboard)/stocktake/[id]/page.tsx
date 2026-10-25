@@ -4,7 +4,6 @@ import { redirect, notFound } from "next/navigation"
 import prisma from "@/lib/prisma"
 import Link from "next/link"
 import { StartStocktakeButton } from "./StartButton"
-import { CountScanner } from "./CountScanner"
 
 const statusLabels: Record<string, string> = {
   DRAFT: "مسودة",
@@ -28,7 +27,6 @@ export default async function StocktakeDetailPage({
 
   const { id } = await params
   const user = session.user as any
-  const isAr = user.locale !== "en"
 
   const stocktake = await prisma.stocktakeSession.findUnique({
     where: { id },
@@ -43,7 +41,7 @@ export default async function StocktakeDetailPage({
           countedBy: true,
         },
         orderBy: { countedAt: "desc" },
-        take: 50,
+        take: 200,
       },
       _count: { select: { countRecords: true, tasks: true } },
     },
@@ -91,15 +89,16 @@ export default async function StocktakeDetailPage({
       </header>
 
       <main className="p-6 max-w-6xl mx-auto space-y-6">
-        {/* Info cards */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <InfoCard label="تاريخ الجرد" value={new Date(stocktake.countDate).toLocaleDateString("ar-EG")} />
+          <InfoCard
+            label="تاريخ الجرد"
+            value={new Date(stocktake.countDate).toLocaleDateString("ar-EG")}
+          />
           <InfoCard label="المسجلات" value={String(stocktake._count.countRecords)} />
           <InfoCard label="المتوقع" value={String(stocktake.progress?.totalExpected || "—")} />
           <InfoCard label="تم عده" value={String(stocktake.progress?.totalCounted || 0)} />
         </div>
 
-        {/* Actions */}
         <div className="bg-white rounded-xl border p-5 flex flex-wrap gap-3">
           {canStart && <StartStocktakeButton sessionId={stocktake.id} />}
           {canCount && (
@@ -110,6 +109,12 @@ export default async function StocktakeDetailPage({
               بدء المسح والعد
             </Link>
           )}
+          <a
+            href={`/api/export/stocktake/${stocktake.id}`}
+            className="bg-slate-700 hover:bg-slate-800 text-white px-5 py-2.5 rounded-lg font-medium"
+          >
+            تصدير Excel
+          </a>
           {["COUNTING_COMPLETE", "UNDER_REVIEW", "IN_PROGRESS"].includes(stocktake.status) && (
             <Link
               href={`/stocktake/${stocktake.id}/reconciliation`}
@@ -120,9 +125,8 @@ export default async function StocktakeDetailPage({
           )}
         </div>
 
-        {/* Recent counts */}
         <div className="bg-white rounded-xl border shadow-sm overflow-hidden">
-          <div className="px-5 py-4 border-b font-semibold">آخر عمليات المسح</div>
+          <div className="px-5 py-4 border-b font-semibold">تقرير عمليات المسح</div>
           {stocktake.countRecords.length === 0 ? (
             <div className="p-8 text-center text-slate-500">لا توجد سجلات عد بعد</div>
           ) : (
@@ -131,23 +135,32 @@ export default async function StocktakeDetailPage({
                 <thead className="bg-slate-50">
                   <tr>
                     <th className="px-4 py-2 text-right">الوقت</th>
-                    <th className="px-4 py-2 text-right">SKU</th>
-                    <th className="px-4 py-2 text-right">الكمية المعدودة</th>
+                    <th className="px-4 py-2 text-right">الباركود</th>
+                    <th className="px-4 py-2 text-right">اسم الصنف</th>
+                    <th className="px-4 py-2 text-right">الكمية</th>
                     <th className="px-4 py-2 text-right">الحالة</th>
-                    <th className="px-4 py-2 text-right">العداد</th>
+                    <th className="px-4 py-2 text-right">القائم بالجرد</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y">
                   {stocktake.countRecords.map((r) => (
                     <tr key={r.id} className="hover:bg-slate-50">
-                      <td className="px-4 py-2 text-slate-500">
-                        {new Date(r.countedAt).toLocaleTimeString("ar-EG")}
+                      <td className="px-4 py-2 text-slate-500 whitespace-nowrap">
+                        {new Date(r.countedAt).toLocaleString("ar-EG")}
                       </td>
-                      <td className="px-4 py-2 font-mono">{r.item?.sku || "—"}</td>
-                      <td className="px-4 py-2 font-bold">{Number(r.countedQty)}</td>
+                      <td className="px-4 py-2 font-mono text-xs max-w-[200px] break-all" dir="ltr">
+                        {r.qrCodeScanned || r.carton?.qrCode || "—"}
+                      </td>
+                      <td className="px-4 py-2">
+                        {r.item?.nameAr || r.item?.nameEn || r.qrCodeScanned || "—"}
+                        {r.item?.sku ? (
+                          <span className="block text-xs text-slate-400 font-mono">{r.item.sku}</span>
+                        ) : null}
+                      </td>
+                      <td className="px-4 py-2 font-bold text-blue-700">{Number(r.countedQty)}</td>
                       <td className="px-4 py-2">
                         {r.isUnknownQr ? (
-                          <span className="text-amber-600">غير معروف</span>
+                          <span className="text-amber-600">غير معرّف</span>
                         ) : r.isDuplicate ? (
                           <span className="text-red-600">مكرر</span>
                         ) : r.varianceQty && Number(r.varianceQty) !== 0 ? (
@@ -156,7 +169,7 @@ export default async function StocktakeDetailPage({
                           <span className="text-green-600">تم</span>
                         )}
                       </td>
-                      <td className="px-4 py-2">{r.countedBy?.nameAr || r.countedBy?.name}</td>
+                      <td className="px-4 py-2">{r.countedBy?.nameAr || r.countedBy?.name || "—"}</td>
                     </tr>
                   ))}
                 </tbody>
