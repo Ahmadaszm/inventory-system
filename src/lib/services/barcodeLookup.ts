@@ -1,6 +1,5 @@
 /**
- * External barcode product lookup
- * Sources: Open Food Facts (free), UPCitemdb trial
+ * External barcode product lookup — Open Food Facts, Beauty Facts, UPCitemdb
  */
 
 export type ExternalProduct = {
@@ -11,22 +10,32 @@ export type ExternalProduct = {
   category?: string | null
   imageUrl?: string | null
   source: string
-  raw?: unknown
 }
 
 function cleanName(s?: string | null) {
   if (!s) return null
-  const t = s.trim()
+  const t = String(s).trim()
   return t.length ? t : null
+}
+
+export function extractBarcodeCandidates(raw: string): string[] {
+  const t = raw.trim()
+  const out: string[] = []
+  if (t) out.push(t)
+  const digits = t.replace(/\D/g, "")
+  if (digits.length >= 6 && digits.length <= 14) out.push(digits)
+  const m1 = t.match(/(?:barcode|ean|upc|gtin|code)[=:\s]+(\d{6,14})/i)
+  if (m1) out.push(m1[1])
+  const m2 = t.match(/\b(\d{8,14})\b/)
+  if (m2) out.push(m2[1])
+  return Array.from(new Set(out))
 }
 
 async function lookupOpenFoodFacts(barcode: string): Promise<ExternalProduct | null> {
   try {
     const res = await fetch(
       `https://world.openfoodfacts.org/api/v2/product/${encodeURIComponent(barcode)}.json`,
-      {
-        headers: { "User-Agent": "InventorySystem/1.0 (inventory-management)" },
-      }
+      { headers: { "User-Agent": "InventorySystem/1.0" }, signal: AbortSignal.timeout(5000) }
     )
     if (!res.ok) return null
     const data = await res.json()
@@ -36,8 +45,7 @@ async function lookupOpenFoodFacts(barcode: string): Promise<ExternalProduct | n
       cleanName(p.product_name_ar) ||
       cleanName(p.product_name_en) ||
       cleanName(p.product_name) ||
-      cleanName(p.generic_name) ||
-      null
+      cleanName(p.generic_name)
     if (!name) return null
     return {
       barcode,
@@ -47,7 +55,6 @@ async function lookupOpenFoodFacts(barcode: string): Promise<ExternalProduct | n
       category: cleanName(p.categories)?.split(",")[0]?.trim() || null,
       imageUrl: p.image_front_small_url || p.image_url || null,
       source: "Open Food Facts",
-      raw: { code: data.code },
     }
   } catch {
     return null
@@ -58,7 +65,7 @@ async function lookupOpenBeautyFacts(barcode: string): Promise<ExternalProduct |
   try {
     const res = await fetch(
       `https://world.openbeautyfacts.org/api/v2/product/${encodeURIComponent(barcode)}.json`,
-      { headers: { "User-Agent": "InventorySystem/1.0" } }
+      { headers: { "User-Agent": "InventorySystem/1.0" }, signal: AbortSignal.timeout(4000) }
     )
     if (!res.ok) return null
     const data = await res.json()
@@ -83,7 +90,7 @@ async function lookupUpcItemDb(barcode: string): Promise<ExternalProduct | null>
   try {
     const res = await fetch(
       `https://api.upcitemdb.com/prod/trial/lookup?upc=${encodeURIComponent(barcode)}`,
-      { headers: { Accept: "application/json" } }
+      { headers: { Accept: "application/json" }, signal: AbortSignal.timeout(4000) }
     )
     if (!res.ok) return null
     const data = await res.json()
@@ -104,46 +111,22 @@ async function lookupUpcItemDb(barcode: string): Promise<ExternalProduct | null>
   }
 }
 
-async function lookupGoUpc(barcode: string): Promise<ExternalProduct | null> {
-  try {
-    const res = await fetch(`https://go-upc.com/api/v1/code/${encodeURIComponent(barcode)}`, {
-      headers: { Accept: "application/json" },
-    })
-    if (!res.ok) return null
-    const data = await res.json()
-    const name = cleanName(data?.product?.name) || cleanName(data?.name)
-    if (!name) return null
-    return {
-      barcode,
-      name,
-      brand: cleanName(data?.product?.brand) || cleanName(data?.brand),
-      category: cleanName(data?.product?.category),
-      imageUrl: data?.product?.imageUrl || null,
-      source: "Go-UPC",
-    }
-  } catch {
-    return null
-  }
-}
+export async function lookupExternalBarcode(rawCode: string): Promise<ExternalProduct | null> {
+  const candidates = extractBarcodeCandidates(rawCode)
+  const sources = [lookupOpenFoodFacts, lookupOpenBeautyFacts, lookupUpcItemDb]
 
-export async function lookupExternalBarcode(barcode: string): Promise<ExternalProduct | null> {
-  const code = barcode.trim()
-  if (!code || code.length < 6) return null
-
-  const isNumericBarcode = /^\d{6,14}$/.test(code)
-  if (!isNumericBarcode) return null
-
-  const sources = [lookupOpenFoodFacts, lookupOpenBeautyFacts, lookupUpcItemDb, lookupGoUpc]
-
-  for (const fn of sources) {
-    try {
-      const result = await Promise.race([
-        fn(code),
-        new Promise<null>((resolve) => setTimeout(() => resolve(null), 4000)),
-      ])
-      if (result) return result
-    } catch {
-      // try next
+  for (const code of candidates) {
+    const numeric = code.replace(/\D/g, "")
+    const tryCodes = numeric.length >= 6 ? [numeric, code] : [code]
+    for (const c of tryCodes) {
+      for (const fn of sources) {
+        try {
+          const result = await fn(c)
+          if (result) return result
+        } catch {
+          /* next */
+        }
+      }
     }
   }
   return null
