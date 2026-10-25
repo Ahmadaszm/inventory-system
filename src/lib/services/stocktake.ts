@@ -216,8 +216,13 @@ export async function recordCount(params: {
 export async function runReconciliation(sessionId: string) {
   const snapshots = await prisma.bookSnapshot.findMany({
     where: { sessionId },
-    include: { item: true },
   })
+
+  const itemIds = Array.from(new Set(snapshots.map((s) => s.itemId)))
+  const items = itemIds.length
+    ? await prisma.item.findMany({ where: { id: { in: itemIds } } })
+    : []
+  const itemMap = new Map(items.map((i) => [i.id, i]))
 
   const counts = await prisma.countRecord.findMany({
     where: { sessionId },
@@ -238,20 +243,21 @@ export async function runReconciliation(sessionId: string) {
     const physical = physicalMap.get(key) || 0
     const book = Number(snap.bookQuantity)
     const variance = physical - book
+    const item = itemMap.get(snap.itemId)
 
     results.push({
       itemId: snap.itemId,
-      sku: snap.item.sku,
-      nameEn: snap.item.nameEn,
-      nameAr: snap.item.nameAr,
+      sku: item?.sku,
+      nameEn: item?.nameEn,
+      nameAr: item?.nameAr,
       batchId: snap.batchId,
       locationId: snap.locationId,
       bookQty: book,
       physicalQty: physical,
       varianceQty: variance,
       variancePct: book !== 0 ? (variance / book) * 100 : null,
-      unitCost: Number(snap.unitCost ?? snap.item.costPerUnit),
-      financialVariance: variance * Number(snap.unitCost ?? snap.item.costPerUnit),
+      unitCost: Number(snap.unitCost || item?.costPerUnit || 0),
+      financialVariance: variance * Number(snap.unitCost || item?.costPerUnit || 0),
       status: variance === 0 ? "MATCHED" : variance < 0 ? "SHORTAGE" : "SURPLUS",
     })
     physicalMap.delete(key)
