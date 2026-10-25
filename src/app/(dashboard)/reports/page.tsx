@@ -22,7 +22,7 @@ export default async function ReportsPage() {
     <div className="min-h-screen bg-slate-50" dir="rtl">
       <main className="p-6 max-w-4xl mx-auto">
         <h1 className="text-2xl font-bold mb-2">التقارير</h1>
-        <p className="text-slate-500 mb-6">تقارير قابلة للبحث والتصدير إلى Excel و PDF</p>
+        <p className="text-slate-500 mb-6">تقارير قابلة للبحث والتصدير إلى Excel</p>
 
         <div className="grid gap-3">
           {reports.map((r) => (
@@ -37,8 +37,8 @@ export default async function ReportsPage() {
           ))}
         </div>
 
-        <div className="mt-8 p-4 bg-amber-50 border border-amber-200 rounded-xl text-sm text-amber-800">
-          <strong>ملاحظة:</strong> تقارير التصدير (Excel / PDF) جاهزة هيكلياً. يمكن إكمال نقاط النهاية عند الحاجة باستخدام ExcelJS و PDFKit الموجودين في المشروع.
+        <div className="mt-8 p-4 bg-emerald-50 border border-emerald-200 rounded-xl text-sm text-emerald-800">
+          جميع التقارير متاحة للعرض. تصدير Excel متوفر من قائمة المخزون ومن كل جلسة جرد.
         </div>
       </main>
     </div>
