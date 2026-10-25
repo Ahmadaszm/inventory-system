@@ -12,8 +12,6 @@ datasource db {
   directUrl = env("DIRECT_URL")
 }
 
-// ==================== USERS & SECURITY ====================
-
 model User {
   id            String    @id @default(cuid())
   email         String    @unique
@@ -375,8 +373,8 @@ model CountRecord {
   task            CountTask?      @relation(fields: [taskId], references: [id])
   cartonId        String?
   carton          Carton?         @relation(fields: [cartonId], references: [id])
-  itemId          String
-  item            Item            @relation(fields: [itemId], references: [id])
+  itemId          String?
+  item            Item?           @relation(fields: [itemId], references: [id])
   batchId         String?
   batch           Batch?          @relation(fields: [batchId], references: [id])
   locationId      String?
