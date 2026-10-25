@@ -23,7 +23,7 @@ export const authOptions: NextAuthOptions = {
         if (!credentials?.email || !credentials?.password) return null
 
         const user = await prisma.user.findUnique({
-          where: { email: credentials.email.trim().toLowerCase() },
+          where: { email: credentials.email },
         })
 
         if (!user || !user.isActive) return null
@@ -50,19 +50,19 @@ export const authOptions: NextAuthOptions = {
   callbacks: {
     async jwt({ token, user }) {
       if (user) {
-        token.id = user.id
-        token.role = user.role
-        token.nameAr = user.nameAr
-        token.locale = user.locale
+        token.userId = user.id
+        token.role = (user as any).role
+        token.nameAr = (user as any).nameAr
+        token.locale = (user as any).locale
       }
       return token
     },
     async session({ session, token }) {
       if (session.user) {
-        session.user.id = token.id
-        session.user.role = token.role
-        session.user.nameAr = token.nameAr
-        session.user.locale = token.locale
+        ;(session.user as any).id = token.userId as string
+        ;(session.user as any).role = token.role as string
+        ;(session.user as any).nameAr = token.nameAr as string
+        ;(session.user as any).locale = token.locale as string
       }
       return session
     },
