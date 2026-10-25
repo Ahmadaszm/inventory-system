@@ -4,6 +4,7 @@ import { redirect, notFound } from "next/navigation"
 import prisma from "@/lib/prisma"
 import Link from "next/link"
 import { StartStocktakeButton } from "./StartButton"
+import { extractProductCode, cleanQrText } from "@/lib/barcodeExtract"
 
 const statusLabels: Record<string, string> = {
   DRAFT: "مسودة",
@@ -143,35 +144,43 @@ export default async function StocktakeDetailPage({
                   </tr>
                 </thead>
                 <tbody className="divide-y">
-                  {stocktake.countRecords.map((r) => (
-                    <tr key={r.id} className="hover:bg-slate-50">
-                      <td className="px-4 py-2 text-slate-500 whitespace-nowrap">
-                        {new Date(r.countedAt).toLocaleString("ar-EG")}
-                      </td>
-                      <td className="px-4 py-2 font-mono text-xs max-w-[200px] break-all" dir="ltr">
-                        {r.qrCodeScanned || r.carton?.qrCode || "—"}
-                      </td>
-                      <td className="px-4 py-2">
-                        {r.item?.nameAr || r.item?.nameEn || r.qrCodeScanned || "—"}
-                        {r.item?.sku ? (
-                          <span className="block text-xs text-slate-400 font-mono">{r.item.sku}</span>
-                        ) : null}
-                      </td>
-                      <td className="px-4 py-2 font-bold text-blue-700">{Number(r.countedQty)}</td>
-                      <td className="px-4 py-2">
-                        {r.isUnknownQr ? (
-                          <span className="text-amber-600">غير معرّف</span>
-                        ) : r.isDuplicate ? (
-                          <span className="text-red-600">مكرر</span>
-                        ) : r.varianceQty && Number(r.varianceQty) !== 0 ? (
-                          <span className="text-orange-600">فرق</span>
-                        ) : (
-                          <span className="text-green-600">تم</span>
-                        )}
-                      </td>
-                      <td className="px-4 py-2">{r.countedBy?.nameAr || r.countedBy?.name || "—"}</td>
-                    </tr>
-                  ))}
+                  {stocktake.countRecords.map((r) => {
+                    const full = r.qrCodeScanned || r.carton?.qrCode || ""
+                    const code = r.item?.sku || extractProductCode(full) || "—"
+                    const name =
+                      r.item?.nameAr || r.item?.nameEn || cleanQrText(full) || "—"
+                    return (
+                      <tr key={r.id} className="hover:bg-slate-50">
+                        <td className="px-4 py-2 text-slate-500 whitespace-nowrap">
+                          {new Date(r.countedAt).toLocaleString("ar-EG")}
+                        </td>
+                        <td
+                          className="px-4 py-2 font-mono font-bold text-blue-800 whitespace-nowrap"
+                          dir="ltr"
+                        >
+                          {code}
+                        </td>
+                        <td className="px-4 py-2 max-w-[320px]">{name}</td>
+                        <td className="px-4 py-2 font-bold text-blue-700">
+                          {Number(r.countedQty)}
+                        </td>
+                        <td className="px-4 py-2">
+                          {r.isUnknownQr ? (
+                            <span className="text-amber-600">غير معرّف</span>
+                          ) : r.isDuplicate ? (
+                            <span className="text-red-600">مكرر</span>
+                          ) : r.varianceQty && Number(r.varianceQty) !== 0 ? (
+                            <span className="text-orange-600">فرق</span>
+                          ) : (
+                            <span className="text-green-600">تم</span>
+                          )}
+                        </td>
+                        <td className="px-4 py-2">
+                          {r.countedBy?.nameAr || r.countedBy?.name || "—"}
+                        </td>
+                      </tr>
+                    )
+                  })}
                 </tbody>
               </table>
             </div>
