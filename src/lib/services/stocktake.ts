@@ -112,14 +112,16 @@ export async function recordCount(params: {
     throw new Error("Session is not open for counting")
   }
 
+  const qrClean = params.qrCode.replace(/[\r\n]+/g, " ").trim().slice(0, 500)
+
   const carton = await prisma.carton.findUnique({
-    where: { qrCode: params.qrCode },
+    where: { qrCode: qrClean },
     include: { item: true, batch: true, location: true },
   })
 
   await prisma.scanEvent.create({
     data: {
-      qrCode: params.qrCode,
+      qrCode: qrClean,
       cartonId: carton?.id,
       userId: params.countedById,
       sessionId: params.sessionId,
@@ -129,23 +131,37 @@ export async function recordCount(params: {
     },
   })
 
+  // Allow physical count even when product is NOT in item master
   if (!carton || !carton.isActive) {
     const record = await prisma.countRecord.create({
       data: {
-        sessionId: params.sessionId,
-        taskId: params.taskId,
-        qrCodeScanned: params.qrCode,
-        itemId: carton?.itemId ?? null,
+        session: { connect: { id: params.sessionId } },
+        qrCodeScanned: qrClean,
         countedQty: params.countedQty,
-        status: "DISCREPANCY",
+        status: "COUNTED",
         isUnknownQr: !carton,
         isUnexpected: true,
-        notes: params.notes || (carton ? "Inactive carton" : "Unknown QR code"),
-        countedById: params.countedById,
+        notes:
+          params.notes ||
+          (carton ? "Inactive carton" : "Physical count - item not in master"),
+        countedBy: { connect: { id: params.countedById } },
         clientEventId: params.clientEventId,
+        ...(params.taskId ? { task: { connect: { id: params.taskId } } } : {}),
+        ...(carton?.itemId ? { item: { connect: { id: carton.itemId } } } : {}),
       },
     })
-    return { status: "UNKNOWN_OR_INACTIVE", record }
+
+    await prisma.sessionProgress
+      .update({
+        where: { sessionId: params.sessionId },
+        data: {
+          totalCounted: { increment: 1 },
+          unknownCount: { increment: !carton ? 1 : 0 },
+        },
+      })
+      .catch(() => {})
+
+    return { status: "UNKNOWN_COUNTED", record }
   }
 
   const existingCount = await prisma.countRecord.findUnique({
@@ -188,7 +204,7 @@ export async function recordCount(params: {
       itemId: carton.itemId,
       batchId: carton.batchId,
       locationId: carton.locationId,
-      qrCodeScanned: params.qrCode,
+      qrCodeScanned: qrClean,
       countedQty: params.countedQty,
       bookQty,
       varianceQty: variance,
