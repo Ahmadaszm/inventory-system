@@ -1,5 +1,6 @@
 import prisma from "@/lib/prisma"
 import { generateSessionNumber } from "@/lib/utils"
+import { resolveBarcode, normalizeBarcode } from "@/lib/services/resolveBarcode"
 
 export async function createStocktakeSession(params: {
   type: string
@@ -112,12 +113,12 @@ export async function recordCount(params: {
     throw new Error("Session is not open for counting")
   }
 
-  const qrClean = params.qrCode.replace(/[\r\n]+/g, " ").trim().slice(0, 500)
+  const qrClean =
+    normalizeBarcode(params.qrCode).slice(0, 500) ||
+    params.qrCode.replace(/[\r\n]+/g, " ").trim().slice(0, 500)
 
-  const carton = await prisma.carton.findUnique({
-    where: { qrCode: qrClean },
-    include: { item: true, batch: true, location: true },
-  })
+  const resolved = await resolveBarcode(params.qrCode)
+  const carton = resolved?.carton ?? null
 
   await prisma.scanEvent.create({
     data: {
@@ -131,7 +132,6 @@ export async function recordCount(params: {
     },
   })
 
-  // Allow physical count even when product is NOT in item master
   if (!carton || !carton.isActive) {
     const record = await prisma.countRecord.create({
       data: {
