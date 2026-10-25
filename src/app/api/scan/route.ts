@@ -4,6 +4,7 @@ import { authOptions, hasPermission } from "@/lib/auth/options"
 import prisma from "@/lib/prisma"
 import { recordCount } from "@/lib/services/stocktake"
 import { lookupExternalBarcode } from "@/lib/services/barcodeLookup"
+import { resolveBarcode, normalizeBarcode } from "@/lib/services/resolveBarcode"
 
 export async function POST(req: NextRequest) {
   try {
@@ -42,19 +43,13 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    const code = qrCode.trim()
+    const code = normalizeBarcode(qrCode) || qrCode.trim()
 
     if (!sessionId) {
       let carton: any = null
       try {
-        carton = await prisma.carton.findUnique({
-          where: { qrCode: code },
-          include: {
-            item: { include: { category: true, brand: true } },
-            batch: true,
-            location: { include: { warehouse: true } },
-          },
-        })
+        const resolved = await resolveBarcode(code)
+        carton = resolved?.carton ?? null
       } catch (dbErr: any) {
         console.error("DB error:", dbErr)
       }
