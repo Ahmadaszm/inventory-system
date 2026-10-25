@@ -27,6 +27,7 @@ export default function CountPage() {
   const [cameraActive, setCameraActive] = useState(false)
   const [cameraError, setCameraError] = useState("")
   const inputRef = useRef<HTMLInputElement>(null)
+  const qtyRef = useRef<HTMLInputElement>(null)
   const scannerRef = useRef<any>(null)
   const scannerContainerId = "qr-reader-count"
 
@@ -35,45 +36,27 @@ export default function CountPage() {
   }, [status, router])
 
   useEffect(() => {
-    inputRef.current?.focus()
-  }, [lastResult])
-
-  useEffect(() => {
     return () => {
       stopCamera()
     }
   }, [])
 
-  async function submitCount(code: string, countedQty?: number) {
+  async function submitCount(code: string, countedQty: number) {
     if (!code.trim() || loading) return
     setLoading(true)
     setLastResult(null)
 
     const clientEventId = uuid()
+    const qrClean = code.replace(/[\r\n]+/g, " ").trim()
 
     try {
-      let finalQty = countedQty
-      if (finalQty === undefined && qty) {
-        finalQty = parseFloat(qty)
-      }
-
-      if (finalQty === undefined) {
-        const lookup = await fetch("/api/scan", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ qrCode: code.trim() }),
-        })
-        const lookupData = await lookup.json()
-        finalQty = lookupData.status === "FOUND" ? lookupData.carton.quantity : 0
-      }
-
       const res = await fetch("/api/scan", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          qrCode: code.trim(),
+          qrCode: qrClean,
           sessionId,
-          countedQty: finalQty,
+          countedQty,
           clientEventId,
         }),
       })
@@ -84,16 +67,17 @@ export default function CountPage() {
       setLastResult(data)
       setHistory((h) => [
         {
-          qr: code.trim(),
+          qr: qrClean,
           status: data.status,
-          qty: finalQty,
+          qty: countedQty,
           time: new Date().toLocaleTimeString("ar-EG"),
-          item: data.record?.item?.sku || data.record?.qrCodeScanned,
+          item: data.record?.item?.nameAr || data.record?.item?.sku || qrClean,
         },
         ...h.slice(0, 19),
       ])
       setQrInput("")
       setQty("")
+      inputRef.current?.focus()
     } catch (err: any) {
       setLastResult({ status: "ERROR", message: err.message })
     } finally {
@@ -103,7 +87,16 @@ export default function CountPage() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    await submitCount(qrInput)
+    if (!qrInput.trim()) {
+      setLastResult({ status: "ERROR", message: "امسح أو أدخل الباركود أولاً" })
+      return
+    }
+    if (qty === "" || isNaN(parseFloat(qty)) || parseFloat(qty) < 0) {
+      setLastResult({ status: "ERROR", message: "أدخل الكمية يدوياً قبل تسجيل العد" })
+      qtyRef.current?.focus()
+      return
+    }
+    await submitCount(qrInput, parseFloat(qty))
   }
 
   async function startCamera() {
@@ -115,10 +108,15 @@ export default function CountPage() {
       scannerRef.current = scanner
       await scanner.start(
         { facingMode: "environment" },
-        { fps: 10, qrbox: { width: 250, height: 250 }, aspectRatio: 1 },
-        async (decodedText) => {
-          setQrInput(decodedText)
-          await submitCount(decodedText)
+        { fps: 8, qrbox: { width: 250, height: 250 }, aspectRatio: 1 },
+        (decodedText) => {
+          const code = decodedText.replace(/[\r\n]+/g, " ").trim()
+          setQrInput(code)
+          // لا تسجيل تلقائي — المستخدم يدخل الكمية ثم يضغط تسجيل العد
+          if (typeof navigator !== "undefined" && navigator.vibrate) {
+            navigator.vibrate(80)
+          }
+          qtyRef.current?.focus()
         },
         () => {}
       )
@@ -126,7 +124,7 @@ export default function CountPage() {
       setCameraError(
         err?.name === "NotAllowedError"
           ? "يرجى السماح بالوصول إلى الكاميرا من إعدادات المتصفح"
-          : "تعذر تشغيل الكاميرا. تأكد من وجود كاميرا وأن الصفحة على HTTPS"
+          : "تعذر تشغيل الكاميرا"
       )
       setCameraActive(false)
     }
@@ -190,7 +188,7 @@ export default function CountPage() {
 
           <form onSubmit={handleSubmit} className="space-y-3">
             <div>
-              <label className="block text-sm font-medium mb-1">رمز QR / الباركود</label>
+              <label className="block text-sm font-medium mb-1">الباركود / QR</label>
               <input
                 ref={inputRef}
                 type="text"
@@ -200,25 +198,28 @@ export default function CountPage() {
                 className="w-full border-2 border-slate-300 rounded-lg px-4 py-3 text-lg font-mono focus:border-blue-500 outline-none"
                 dir="ltr"
                 autoComplete="off"
-                autoFocus
               />
             </div>
             <div>
-              <label className="block text-sm font-medium mb-1">
-                الكمية (اتركه فارغاً لاستخدام كمية الكرتون)
+              <label className="block text-sm font-medium mb-1 text-blue-800">
+                الكمية (يدوياً — إلزامي)
               </label>
               <input
+                ref={qtyRef}
                 type="number"
                 step="any"
+                min="0"
                 value={qty}
                 onChange={(e) => setQty(e.target.value)}
-                className="w-full border rounded-lg px-4 py-2 focus:ring-2 focus:ring-blue-500 outline-none"
+                placeholder="مثال: 20"
+                className="w-full border-2 border-blue-300 rounded-lg px-4 py-3 text-lg font-bold focus:ring-2 focus:ring-blue-500 outline-none"
                 dir="ltr"
+                required
               />
             </div>
             <button
               type="submit"
-              disabled={loading || !qrInput.trim()}
+              disabled={loading || !qrInput.trim() || qty === ""}
               className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-lg disabled:opacity-50 text-lg"
             >
               {loading ? "جاري التسجيل..." : "تسجيل العد"}
@@ -229,22 +230,28 @@ export default function CountPage() {
         {lastResult && (
           <div
             className={`rounded-xl p-4 border-2 ${
-              lastResult.status === "COUNTED"
+              lastResult.status === "COUNTED" || lastResult.status === "UNKNOWN_COUNTED"
                 ? "bg-green-50 border-green-300"
                 : lastResult.status === "DUPLICATE"
                 ? "bg-red-50 border-red-300"
-                : lastResult.status === "UNKNOWN_OR_INACTIVE"
-                ? "bg-amber-50 border-amber-300"
+                : lastResult.status === "ERROR"
+                ? "bg-red-50 border-red-300"
                 : "bg-slate-50 border-slate-300"
             }`}
           >
             <p className="font-bold text-lg">
               {lastResult.status === "COUNTED" && "✓ تم التسجيل بنجاح"}
+              {lastResult.status === "UNKNOWN_COUNTED" &&
+                "✓ تم تسجيل العد (صنف غير معرّف في النظام)"}
               {lastResult.status === "DUPLICATE" && "⚠ مكرر — لم يتم العد مرتين"}
-              {lastResult.status === "UNKNOWN_OR_INACTIVE" && "⚠ رمز غير معروف أو غير نشط"}
               {lastResult.status === "ERROR" && `خطأ: ${lastResult.message}`}
               {lastResult.status === "ALREADY_SYNCED" && "تم مزامنته مسبقاً"}
             </p>
+            {lastResult.record?.qrCodeScanned && (
+              <p className="mt-1 text-sm font-mono break-all" dir="ltr">
+                {lastResult.record.qrCodeScanned}
+              </p>
+            )}
             {lastResult.record?.item && (
               <p className="mt-1 text-sm">
                 {lastResult.record.item.sku} — {lastResult.record.item.nameAr}
@@ -261,19 +268,11 @@ export default function CountPage() {
             <ul className="divide-y max-h-64 overflow-y-auto">
               {history.map((h, i) => (
                 <li key={i} className="px-4 py-2 text-sm flex justify-between gap-2">
-                  <span className="font-mono truncate max-w-[140px]">{h.item || h.qr}</span>
-                  <span className="font-bold">{h.qty}</span>
-                  <span
-                    className={
-                      h.status === "COUNTED"
-                        ? "text-green-600"
-                        : h.status === "DUPLICATE"
-                        ? "text-red-600"
-                        : "text-amber-600"
-                    }
-                  >
-                    {h.status === "COUNTED" ? "تم" : h.status === "DUPLICATE" ? "مكرر" : "؟"}
+                  <span className="truncate max-w-[160px]" title={h.item || h.qr}>
+                    {h.item || h.qr}
                   </span>
+                  <span className="font-bold">{h.qty}</span>
+                  <span className="text-green-600">تم</span>
                 </li>
               ))}
             </ul>
