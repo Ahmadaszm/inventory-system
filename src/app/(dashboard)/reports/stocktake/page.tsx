@@ -4,6 +4,18 @@ import { redirect } from "next/navigation"
 import prisma from "@/lib/prisma"
 import Link from "next/link"
 
+const statusLabels: Record<string, string> = {
+  DRAFT: "مسودة",
+  PLANNED: "مخطط",
+  IN_PROGRESS: "جاري العد",
+  COUNTING_COMPLETE: "اكتمل العد",
+  UNDER_REVIEW: "قيد المراجعة",
+  PENDING_APPROVAL: "بانتظار الاعتماد",
+  APPROVED: "معتمد",
+  CLOSED: "مغلق",
+  CANCELLED: "ملغي",
+}
+
 export default async function StocktakeReportPage() {
   const session = await getServerSession(authOptions)
   if (!session) redirect("/login")
@@ -22,7 +34,9 @@ export default async function StocktakeReportPage() {
     <div className="min-h-screen bg-slate-50" dir="rtl">
       <header className="bg-white border-b px-6 py-4">
         <div className="max-w-6xl mx-auto">
-          <Link href="/reports" className="text-sm text-blue-600 hover:underline">← التقارير</Link>
+          <Link href="/reports" className="text-sm text-blue-600 hover:underline">
+            ← التقارير
+          </Link>
           <h1 className="text-xl font-bold mt-1">نتائج الجرد</h1>
         </div>
       </header>
@@ -46,19 +60,37 @@ export default async function StocktakeReportPage() {
                   <td className="px-3 py-2 font-mono text-xs">{s.sessionNumber}</td>
                   <td className="px-3 py-2">{s.titleAr || s.title}</td>
                   <td className="px-3 py-2">{s.isSurprise ? "مفاجئ" : s.type}</td>
-                  <td className="px-3 py-2">{s.status}</td>
+                  <td className="px-3 py-2">{statusLabels[s.status] || s.status}</td>
                   <td className="px-3 py-2 font-bold">{s._count.countRecords}</td>
-                  <td className="px-3 py-2">{new Date(s.countDate).toLocaleDateString("ar-EG")}</td>
                   <td className="px-3 py-2">
-                    <Link href={`/stocktake/${s.id}`} className="text-blue-600 hover:underline">عرض</Link>
+                    {new Date(s.countDate).toLocaleDateString("ar-EG")}
+                  </td>
+                  <td className="px-3 py-2">
+                    <Link href={`/stocktake/${s.id}`} className="text-blue-600 hover:underline">
+                      عرض
+                    </Link>
                     {" · "}
-                    <a href={`/api/export/stocktake/${s.id}`} className="text-emerald-600 hover:underline">Excel</a>
+                    <Link
+                      href={`/stocktake/${s.id}/reconciliation`}
+                      className="text-indigo-600 hover:underline"
+                    >
+                      تسوية
+                    </Link>
+                    {" · "}
+                    <a
+                      href={`/api/export/stocktake/${s.id}`}
+                      className="text-emerald-600 hover:underline"
+                    >
+                      Excel
+                    </a>
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
-          {sessions.length === 0 && <p className="p-8 text-center text-slate-500">لا توجد جلسات جرد</p>}
+          {sessions.length === 0 && (
+            <p className="p-8 text-center text-slate-500">لا توجد جلسات جرد</p>
+          )}
         </div>
       </main>
     </div>
