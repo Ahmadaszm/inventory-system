@@ -26,6 +26,7 @@ export default function CountPage() {
   const [history, setHistory] = useState<any[]>([])
   const [cameraActive, setCameraActive] = useState(false)
   const [cameraError, setCameraError] = useState("")
+  const [editMode, setEditMode] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
   const qtyRef = useRef<HTMLInputElement>(null)
   const scannerRef = useRef<any>(null)
@@ -41,7 +42,7 @@ export default function CountPage() {
     }
   }, [])
 
-  async function submitCount(code: string, countedQty: number) {
+  async function submitCount(code: string, countedQty: number, mode: "add" | "replace" = "add") {
     if (!code.trim() || loading) return
     setLoading(true)
     setLastResult(null)
@@ -58,25 +59,36 @@ export default function CountPage() {
           sessionId,
           countedQty,
           clientEventId,
+          mode,
         }),
       })
       const data = await res.json()
-
       if (!res.ok) throw new Error(data.error || "فشل التسجيل")
 
       setLastResult(data)
-      setHistory((h) => [
-        {
-          qr: qrClean,
-          status: data.status,
-          qty: countedQty,
-          time: new Date().toLocaleTimeString("ar-EG"),
-          item: data.record?.item?.nameAr || data.record?.item?.sku || qrClean,
-        },
-        ...h.slice(0, 19),
-      ])
+      const displayQty = data.totalQty ?? countedQty
+      const label =
+        data.record?.item?.nameAr ||
+        data.record?.item?.sku ||
+        data.record?.qrCodeScanned ||
+        qrClean
+
+      setHistory((h) => {
+        const filtered = h.filter((x) => x.qr !== qrClean)
+        return [
+          {
+            qr: qrClean,
+            status: data.status,
+            qty: displayQty,
+            time: new Date().toLocaleTimeString("ar-EG"),
+            item: label,
+          },
+          ...filtered.slice(0, 19),
+        ]
+      })
       setQrInput("")
       setQty("")
+      setEditMode(false)
       inputRef.current?.focus()
     } catch (err: any) {
       setLastResult({ status: "ERROR", message: err.message })
@@ -96,7 +108,14 @@ export default function CountPage() {
       qtyRef.current?.focus()
       return
     }
-    await submitCount(qrInput, parseFloat(qty))
+    await submitCount(qrInput, parseFloat(qty), editMode ? "replace" : "add")
+  }
+
+  function startEdit(h: any) {
+    setQrInput(h.qr)
+    setQty(String(h.qty))
+    setEditMode(true)
+    qtyRef.current?.focus()
   }
 
   async function startCamera() {
@@ -112,7 +131,6 @@ export default function CountPage() {
         (decodedText) => {
           const code = decodedText.replace(/[\r\n]+/g, " ").trim()
           setQrInput(code)
-          // لا تسجيل تلقائي — المستخدم يدخل الكمية ثم يضغط تسجيل العد
           if (typeof navigator !== "undefined" && navigator.vibrate) {
             navigator.vibrate(80)
           }
@@ -142,16 +160,18 @@ export default function CountPage() {
     setCameraActive(false)
   }
 
+  const okStatuses = ["COUNTED", "UNKNOWN_COUNTED", "ACCUMULATED", "UPDATED"]
+
   return (
     <div className="min-h-screen bg-slate-100" dir="rtl">
-      <header className="bg-slate-900 text-white px-4 py-3 flex justify-between items-center">
+      <header className="bg-[#9B1B1E] text-white px-4 py-3 flex justify-between items-center">
         <div>
-          <Link href={`/stocktake/${sessionId}`} className="text-sm text-slate-300 hover:text-white">
+          <Link href={`/stocktake/${sessionId}`} className="text-sm text-white/80 hover:text-white">
             ← رجوع للجلسة
           </Link>
           <h1 className="font-bold">شاشة العد والمسح</h1>
         </div>
-        <div className="text-sm text-slate-400">{history.length} عملية</div>
+        <div className="text-sm text-white/70">{history.length} عملية</div>
       </header>
 
       <main className="p-4 max-w-lg mx-auto space-y-4">
@@ -186,6 +206,22 @@ export default function CountPage() {
             style={{ minHeight: cameraActive ? 260 : 0 }}
           />
 
+          {editMode && (
+            <div className="bg-amber-50 border border-amber-300 text-amber-900 text-sm p-3 rounded-lg flex justify-between items-center">
+              <span>وضع التعديل: سيتم استبدال الكمية بالقيمة الجديدة</span>
+              <button
+                type="button"
+                className="text-xs underline"
+                onClick={() => {
+                  setEditMode(false)
+                  setQty("")
+                }}
+              >
+                إلغاء
+              </button>
+            </div>
+          )}
+
           <form onSubmit={handleSubmit} className="space-y-3">
             <div>
               <label className="block text-sm font-medium mb-1">الباركود / QR</label>
@@ -195,7 +231,7 @@ export default function CountPage() {
                 value={qrInput}
                 onChange={(e) => setQrInput(e.target.value)}
                 placeholder="امسح بالكاميرا أو اكتب الرمز..."
-                className="w-full border-2 border-slate-300 rounded-lg px-4 py-3 text-lg font-mono focus:border-blue-500 outline-none"
+                className="w-full border-2 border-slate-300 rounded-lg px-4 py-3 text-lg font-mono focus:border-[#9B1B1E] outline-none"
                 dir="ltr"
                 autoComplete="off"
               />
@@ -203,6 +239,11 @@ export default function CountPage() {
             <div>
               <label className="block text-sm font-medium mb-1 text-blue-800">
                 الكمية (يدوياً — إلزامي)
+                {!editMode && (
+                  <span className="text-xs text-slate-500 font-normal mr-2">
+                    — إعادة المسح تجمع الكميات
+                  </span>
+                )}
               </label>
               <input
                 ref={qtyRef}
@@ -220,9 +261,13 @@ export default function CountPage() {
             <button
               type="submit"
               disabled={loading || !qrInput.trim() || qty === ""}
-              className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-lg disabled:opacity-50 text-lg"
+              className="w-full bg-[#9B1B1E] hover:bg-[#7f1518] text-white font-bold py-3 rounded-lg disabled:opacity-50 text-lg"
             >
-              {loading ? "جاري التسجيل..." : "تسجيل العد"}
+              {loading
+                ? "جاري التسجيل..."
+                : editMode
+                ? "حفظ الكمية المعدّلة"
+                : "تسجيل العد"}
             </button>
           </form>
         </div>
@@ -230,10 +275,8 @@ export default function CountPage() {
         {lastResult && (
           <div
             className={`rounded-xl p-4 border-2 ${
-              lastResult.status === "COUNTED" || lastResult.status === "UNKNOWN_COUNTED"
+              okStatuses.includes(lastResult.status)
                 ? "bg-green-50 border-green-300"
-                : lastResult.status === "DUPLICATE"
-                ? "bg-red-50 border-red-300"
                 : lastResult.status === "ERROR"
                 ? "bg-red-50 border-red-300"
                 : "bg-slate-50 border-slate-300"
@@ -243,7 +286,10 @@ export default function CountPage() {
               {lastResult.status === "COUNTED" && "✓ تم التسجيل بنجاح"}
               {lastResult.status === "UNKNOWN_COUNTED" &&
                 "✓ تم تسجيل العد (صنف غير معرّف في النظام)"}
-              {lastResult.status === "DUPLICATE" && "⚠ مكرر — لم يتم العد مرتين"}
+              {lastResult.status === "ACCUMULATED" &&
+                `✓ تم التجميع: ${lastResult.previousQty} + ${lastResult.addedQty} = ${lastResult.totalQty}`}
+              {lastResult.status === "UPDATED" &&
+                `✓ تم تعديل الكمية إلى ${lastResult.totalQty}`}
               {lastResult.status === "ERROR" && `خطأ: ${lastResult.message}`}
               {lastResult.status === "ALREADY_SYNCED" && "تم مزامنته مسبقاً"}
             </p>
@@ -265,14 +311,27 @@ export default function CountPage() {
             <div className="px-4 py-2 bg-slate-50 font-medium text-sm border-b">
               سجل الجلسة الحالية
             </div>
-            <ul className="divide-y max-h-64 overflow-y-auto">
+            <ul className="divide-y max-h-72 overflow-y-auto">
               {history.map((h, i) => (
-                <li key={i} className="px-4 py-2 text-sm flex justify-between gap-2">
-                  <span className="truncate max-w-[160px]" title={h.item || h.qr}>
+                <li key={i} className="px-4 py-2.5 text-sm flex items-center justify-between gap-2">
+                  <span className="truncate max-w-[140px]" title={h.item || h.qr}>
                     {h.item || h.qr}
                   </span>
-                  <span className="font-bold">{h.qty}</span>
-                  <span className="text-green-600">تم</span>
+                  <span className="font-bold text-blue-800">{h.qty}</span>
+                  <span className="text-green-600 text-xs">
+                    {h.status === "ACCUMULATED"
+                      ? "تجميع"
+                      : h.status === "UPDATED"
+                      ? "تعديل"
+                      : "تم"}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => startEdit(h)}
+                    className="text-xs text-[#9B1B1E] border border-[#9B1B1E]/40 px-2 py-1 rounded hover:bg-red-50"
+                  >
+                    تعديل
+                  </button>
                 </li>
               ))}
             </ul>
