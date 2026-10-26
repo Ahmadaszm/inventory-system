@@ -1,13 +1,25 @@
 import prisma from "@/lib/prisma"
-import { generateSessionNumber } from "@/lib/utils"
 import { resolveBarcode, normalizeBarcode } from "@/lib/services/resolveBarcode"
+import { generateSessionNumber } from "@/lib/utils"
+
+/** Append a structured scan line so the UI can show each count step */
+function appendScanLine(prevNotes: string | null | undefined, qty: number, mode: "add" | "replace") {
+  const line = `SCAN|${mode === "replace" ? "=" : "+"}${qty}|${new Date().toISOString()}`
+  if (mode === "replace") return line
+  const scans = (prevNotes || "")
+    .split("\n")
+    .map((l) => l.trim())
+    .filter((l) => l.startsWith("SCAN|"))
+  scans.push(line)
+  return scans.slice(-50).join("\n")
+}
 
 export async function createStocktakeSession(params: {
   type: string
   title: string
   titleAr?: string
   scopeType: string
-  scopeJson?: unknown
+  scopeJson?: any
   countDate: Date
   isBlind?: boolean
   isSurprise?: boolean
@@ -46,16 +58,13 @@ export async function captureBookSnapshot(sessionId: string) {
   const balances = await prisma.inventoryBalance.findMany({
     where: {
       quantity: { gt: 0 },
-      ...(session.warehouseId
-        ? { location: { warehouseId: session.warehouseId } }
-        : {}),
+      ...(session.warehouseId ? { location: { warehouseId: session.warehouseId } } : {}),
     },
     include: { item: true },
   })
 
   await prisma.$transaction(async (tx) => {
     await tx.bookSnapshot.deleteMany({ where: { sessionId } })
-
     for (const bal of balances) {
       await tx.bookSnapshot.create({
         data: {
@@ -68,16 +77,10 @@ export async function captureBookSnapshot(sessionId: string) {
         },
       })
     }
-
     await tx.stocktakeSession.update({
       where: { id: sessionId },
-      data: {
-        status: "IN_PROGRESS",
-        startedAt: new Date(),
-        freezeCutoffAt: new Date(),
-      },
+      data: { status: "IN_PROGRESS", startedAt: new Date(), freezeCutoffAt: new Date() },
     })
-
     await tx.sessionProgress.update({
       where: { sessionId },
       data: { totalExpected: balances.length },
@@ -116,12 +119,11 @@ export async function recordCount(params: {
     throw new Error("Session is not open for counting")
   }
 
+  const resolved = await resolveBarcode(params.qrCode)
+  const carton = resolved?.carton ?? null
   const qrClean =
     normalizeBarcode(params.qrCode).slice(0, 500) ||
     params.qrCode.replace(/[\r\n]+/g, " ").trim().slice(0, 500)
-
-  const resolved = await resolveBarcode(params.qrCode)
-  const carton = resolved?.carton ?? null
 
   await prisma.scanEvent.create({
     data: {
@@ -152,11 +154,7 @@ export async function recordCount(params: {
         where: { id: existingUnknown.id },
         data: {
           countedQty: nextQty,
-          notes:
-            params.notes ||
-            (mode === "replace"
-              ? `تم تعديل الكمية إلى ${nextQty}`
-              : `تجميع: ${prev} + ${params.countedQty} = ${nextQty}`),
+          notes: appendScanLine(existingUnknown.notes, params.countedQty, mode),
           countedAt: new Date(),
           isDuplicate: false,
         },
@@ -179,9 +177,7 @@ export async function recordCount(params: {
         status: "COUNTED",
         isUnknownQr: !carton,
         isUnexpected: true,
-        notes:
-          params.notes ||
-          (carton ? "Inactive carton" : "Physical count - item not in master"),
+        notes: appendScanLine(null, params.countedQty, "add"),
         countedBy: { connect: { id: params.countedById } },
         clientEventId: params.clientEventId,
         ...(params.taskId ? { task: { connect: { id: params.taskId } } } : {}),
@@ -199,7 +195,7 @@ export async function recordCount(params: {
       })
       .catch(() => {})
 
-    return { status: "UNKNOWN_COUNTED", record }
+    return { status: carton ? "INACTIVE" : "UNKNOWN_COUNTED", record }
   }
 
   const existingCount = await prisma.countRecord.findUnique({
@@ -215,8 +211,7 @@ export async function recordCount(params: {
   if (existingCount) {
     const prev = Number(existingCount.countedQty)
     const nextQty = mode === "replace" ? params.countedQty : prev + params.countedQty
-    const bookQty =
-      existingCount.bookQty != null ? Number(existingCount.bookQty) : null
+    let bookQty = existingCount.bookQty != null ? Number(existingCount.bookQty) : null
     const variance = bookQty !== null ? nextQty - bookQty : null
     const record = await prisma.countRecord.update({
       where: { id: existingCount.id },
@@ -225,11 +220,7 @@ export async function recordCount(params: {
         varianceQty: variance,
         status: variance !== null && variance !== 0 ? "DISCREPANCY" : "COUNTED",
         isDuplicate: false,
-        notes:
-          params.notes ||
-          (mode === "replace"
-            ? `تم تعديل الكمية إلى ${nextQty}`
-            : `تجميع: ${prev} + ${params.countedQty} = ${nextQty}`),
+        notes: appendScanLine(existingCount.notes, params.countedQty, mode),
         countedAt: new Date(),
       },
       include: { item: true, carton: true, batch: true, location: true },
@@ -273,7 +264,7 @@ export async function recordCount(params: {
       status: variance !== null && variance !== 0 ? "DISCREPANCY" : "COUNTED",
       isPartial: Number(carton.quantity) !== params.countedQty,
       isDamaged: params.isDamaged || false,
-      notes: params.notes,
+      notes: appendScanLine(null, params.countedQty, "add"),
       countedById: params.countedById,
       clientEventId: params.clientEventId,
     },
@@ -292,10 +283,7 @@ export async function recordCount(params: {
 }
 
 export async function runReconciliation(sessionId: string) {
-  const snapshots = await prisma.bookSnapshot.findMany({
-    where: { sessionId },
-  })
-
+  const snapshots = await prisma.bookSnapshot.findMany({ where: { sessionId } })
   const itemIds = Array.from(new Set(snapshots.map((s) => s.itemId)))
   const items = itemIds.length
     ? await prisma.item.findMany({ where: { id: { in: itemIds } } })
