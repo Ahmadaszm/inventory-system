@@ -34,7 +34,7 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    const { qrCode, sessionId, countedQty, clientEventId, notes, isDamaged } = body
+    const { qrCode, sessionId, countedQty, clientEventId, notes, isDamaged, mode } = body
 
     if (!qrCode || typeof qrCode !== "string") {
       return NextResponse.json(
@@ -143,6 +143,7 @@ export async function POST(req: NextRequest) {
       clientEventId,
       notes,
       isDamaged,
+      mode: mode === "replace" ? "replace" : "add",
     })
     return NextResponse.json(result)
   } catch (e: any) {
