@@ -23,14 +23,20 @@ export default async function StocktakeListPage() {
   const user = session.user as any
   const isAr = user.locale !== "en"
 
+  const isManager =
+    user.role === "SYSTEM_ADMIN" ||
+    user.role === "INVENTORY_MANAGER" ||
+    user.role === "WAREHOUSE_SUPERVISOR" ||
+    user.role === "APPROVER_AUDITOR"
+
+  // Managers see ALL sessions (including surprise/hidden).
+  // Counters see public sessions + sessions they created.
   const sessions = await prisma.stocktakeSession.findMany({
-    where: {
-      OR: [
-        { isHidden: false },
-        { createdById: user.id },
-        // managers can see surprise
-      ],
-    },
+    where: isManager
+      ? undefined
+      : {
+          OR: [{ isHidden: false }, { createdById: user.id }],
+        },
     include: {
       createdBy: { select: { name: true, nameAr: true } },
       warehouse: true,
@@ -64,79 +70,66 @@ export default async function StocktakeListPage() {
         </div>
       </header>
 
-      <main className="p-6 max-w-7xl mx-auto">
-        <div className="grid gap-4">
-          {sessions.map((s) => {
-            const st = statusLabels[s.status] || statusLabels.DRAFT
-            return (
-              <Link
-                key={s.id}
-                href={`/stocktake/${s.id}`}
-                className="block bg-white rounded-xl border shadow-sm p-5 hover:border-blue-300 transition"
-              >
-                <div className="flex justify-between items-start gap-4">
-                  <div>
-                    <div className="flex items-center gap-2 mb-1">
-                      <span className="font-mono text-sm text-blue-700">{s.sessionNumber}</span>
-                      <span className={`px-2 py-0.5 rounded text-xs font-medium ${st.color}`}>
-                        {isAr ? st.ar : st.en}
-                      </span>
-                      {s.isSurprise && (
-                        <span className="px-2 py-0.5 rounded text-xs font-medium bg-rose-100 text-rose-700">
-                          {isAr ? "مفاجئ" : "Surprise"}
-                        </span>
-                      )}
-                      {s.isBlind && (
-                        <span className="px-2 py-0.5 rounded text-xs font-medium bg-slate-100 text-slate-600">
-                          {isAr ? "أعمى" : "Blind"}
-                        </span>
-                      )}
-                    </div>
-                    <h3 className="font-semibold text-lg">
-                      {isAr && s.titleAr ? s.titleAr : s.title}
-                    </h3>
-                    <p className="text-sm text-slate-500 mt-1">
-                      {isAr ? "بواسطة" : "By"}:{" "}
-                      {isAr ? s.createdBy.nameAr || s.createdBy.name : s.createdBy.name}
-                      {" · "}
-                      {new Date(s.countDate).toLocaleDateString(isAr ? "ar-EG" : "en-GB")}
-                      {s.warehouse && (
-                        <> · {isAr ? s.warehouse.nameAr || s.warehouse.name : s.warehouse.name}</>
-                      )}
-                    </p>
-                  </div>
-                  <div className="text-left text-sm text-slate-600 space-y-1 min-w-[120px]">
+      <main className="p-6 max-w-5xl mx-auto">
+        {sessions.length === 0 ? (
+          <div className="bg-white rounded-xl border p-12 text-center text-slate-500">
+            {isAr ? "لا توجد عمليات جرد بعد" : "No stocktake sessions yet"}
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {sessions.map((s) => {
+              const st = statusLabels[s.status] || statusLabels.DRAFT
+              return (
+                <Link
+                  key={s.id}
+                  href={`/stocktake/${s.id}`}
+                  className="block bg-white rounded-xl border p-4 hover:border-blue-300 hover:shadow-sm transition"
+                >
+                  <div className="flex flex-wrap justify-between gap-3">
                     <div>
-                      {isAr ? "المسجلات" : "Records"}:{" "}
-                      <strong>{s._count.countRecords}</strong>
+                      <div className="flex flex-wrap items-center gap-2 mb-1">
+                        <span className="font-mono text-xs text-slate-500">{s.sessionNumber}</span>
+                        <span className={`text-xs px-2 py-0.5 rounded-full ${st.color}`}>
+                          {isAr ? st.ar : st.en}
+                        </span>
+                        {s.isSurprise && (
+                          <span className="text-xs px-2 py-0.5 rounded-full bg-pink-100 text-pink-700">
+                            {isAr ? "مفاجئ" : "Surprise"}
+                          </span>
+                        )}
+                        {s.isBlind && (
+                          <span className="text-xs px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">
+                            {isAr ? "أعمى" : "Blind"}
+                          </span>
+                        )}
+                      </div>
+                      <h2 className="font-bold text-slate-800">{s.titleAr || s.title}</h2>
+                      <p className="text-xs text-slate-500 mt-1">
+                        {isAr ? "بواسطة" : "By"}:{" "}
+                        {s.createdBy?.nameAr || s.createdBy?.name || "—"} ·{" "}
+                        {new Date(s.countDate).toLocaleDateString(isAr ? "ar-EG" : "en-GB")}
+                      </p>
                     </div>
-                    {s.progress && (
-                      <>
-                        <div>
-                          {isAr ? "متوقع" : "Expected"}: {s.progress.totalExpected}
-                        </div>
-                        <div>
-                          {isAr ? "تم عده" : "Counted"}: {s.progress.totalCounted}
-                        </div>
-                      </>
-                    )}
+                    <div className="text-sm text-slate-600 space-y-0.5 min-w-[100px]">
+                      <div>
+                        {isAr ? "المسجلات" : "Records"}:{" "}
+                        <strong>{s._count.countRecords}</strong>
+                      </div>
+                      <div>
+                        {isAr ? "متوقع" : "Expected"}:{" "}
+                        {s.progress?.totalExpected ?? "—"}
+                      </div>
+                      <div>
+                        {isAr ? "تم عده" : "Counted"}:{" "}
+                        {s.progress?.totalCounted ?? 0}
+                      </div>
+                    </div>
                   </div>
-                </div>
-              </Link>
-            )
-          })}
-
-          {sessions.length === 0 && (
-            <div className="bg-white rounded-xl border p-12 text-center text-slate-500">
-              <p className="text-lg mb-2">
-                {isAr ? "لا توجد عمليات جرد بعد" : "No stocktake sessions yet"}
-              </p>
-              <Link href="/stocktake/new" className="text-blue-600 hover:underline">
-                {isAr ? "إنشاء أول عملية جرد" : "Create first session"}
-              </Link>
-            </div>
-          )}
-        </div>
+                </Link>
+              )
+            })}
+          </div>
+        )}
       </main>
     </div>
   )
