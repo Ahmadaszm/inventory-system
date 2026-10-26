@@ -1,0 +1,26 @@
+{
+  "name": "نظام مخزون زمزم",
+  "short_name": "مخزون زمزم",
+  "description": "نظام إدارة المخزون والجرد — شركة زمزم للصناعات البلاستيكية",
+  "start_url": "/dashboard",
+  "display": "standalone",
+  "background_color": "#9B1B1E",
+  "theme_color": "#9B1B1E",
+  "orientation": "portrait-primary",
+  "lang": "ar",
+  "dir": "rtl",
+  "icons": [
+    {
+      "src": "/logo.svg",
+      "sizes": "192x192",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/logo.svg",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

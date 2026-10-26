@@ -1,10 +1,27 @@
-import type { Metadata } from "next"
+import type { Metadata, Viewport } from "next"
 import "./globals.css"
 import { Providers } from "@/components/Providers"
 
 export const metadata: Metadata = {
-  title: "QR Inventory & Stocktaking System",
-  description: "Complete inventory and physical stocktaking management for manufacturing & importing",
+  title: "نظام مخزون زمزم",
+  description: "شركة زمزم للصناعات البلاستيكية — إدارة المخزون والجرد",
+  manifest: "/manifest.json",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "black-translucent",
+    title: "مخزون زمزم",
+  },
+  icons: {
+    icon: "/logo.svg",
+    apple: "/logo.svg",
+  },
+}
+
+export const viewport: Viewport = {
+  themeColor: "#9B1B1E",
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
 }
 
 export default function RootLayout({
