@@ -5,10 +5,10 @@ import { useState } from "react"
 export function CompleteSessionButton({ sessionId, status }: { sessionId: string; status: string }) {
   const router = useRouter()
   const [loading, setLoading] = useState(false)
-  if (!["IN_PROGRESS", "COUNTING_COMPLETE", "UNDER_REVIEW"].includes(status)) return null
+  if (!["IN_PROGRESS", "UNDER_REVIEW"].includes(status)) return null
 
   async function complete() {
-    if (!confirm("هل تريد إنهاء الجرد وترحيل النتائج؟ ستبقى السجلات ظاهرة في التقارير.")) return
+    if (!confirm("إنهاء العد؟ يمكنك بعدها اعتماد الجلسة من زر الاعتماد.")) return
     setLoading(true)
     try {
       const res = await fetch(`/api/stocktake/${sessionId}/complete`, { method: "POST" })
@@ -27,9 +27,9 @@ export function CompleteSessionButton({ sessionId, status }: { sessionId: string
       type="button"
       onClick={complete}
       disabled={loading}
-      className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-50"
+      className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2.5 rounded-lg text-sm font-medium disabled:opacity-50"
     >
-      {loading ? "جاري..." : "إنهاء الجرد والترحيل"}
+      {loading ? "جاري..." : "إنهاء العد"}
     </button>
   )
 }
