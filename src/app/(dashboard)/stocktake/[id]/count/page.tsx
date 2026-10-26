@@ -4,6 +4,7 @@ import { useState, useRef, useEffect } from "react"
 import { useSession } from "next-auth/react"
 import { useRouter, useParams } from "next/navigation"
 import Link from "next/link"
+import { LinkBarcodePanel } from "./LinkBarcodePanel"
 
 function uuid() {
   return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
@@ -27,6 +28,8 @@ export default function CountPage() {
   const [cameraActive, setCameraActive] = useState(false)
   const [cameraError, setCameraError] = useState("")
   const [editMode, setEditMode] = useState(false)
+  const [showLinkPanel, setShowLinkPanel] = useState(false)
+  const [linkBarcode, setLinkBarcode] = useState("")
   const inputRef = useRef<HTMLInputElement>(null)
   const qtyRef = useRef<HTMLInputElement>(null)
   const scannerRef = useRef<any>(null)
@@ -66,6 +69,10 @@ export default function CountPage() {
       if (!res.ok) throw new Error(data.error || "فشل التسجيل")
 
       setLastResult(data)
+      if (data.status === "UNKNOWN_COUNTED" || data.record?.isUnknownQr) {
+        setLinkBarcode(qrClean)
+        setShowLinkPanel(true)
+      }
       const displayQty = data.totalQty ?? countedQty
       const label =
         data.record?.item?.nameAr ||
@@ -269,6 +276,18 @@ export default function CountPage() {
                 ? "حفظ الكمية المعدّلة"
                 : "تسجيل العد"}
             </button>
+            {qrInput.trim() && (
+              <button
+                type="button"
+                onClick={() => {
+                  setLinkBarcode(qrInput.trim())
+                  setShowLinkPanel(true)
+                }}
+                className="w-full border border-[#9B1B1E] text-[#9B1B1E] font-medium py-2.5 rounded-lg text-sm"
+              >
+                تعريف / ربط هذا الباركود بصنف
+              </button>
+            )}
           </form>
         </div>
 
@@ -285,7 +304,7 @@ export default function CountPage() {
             <p className="font-bold text-lg">
               {lastResult.status === "COUNTED" && "✓ تم التسجيل بنجاح"}
               {lastResult.status === "UNKNOWN_COUNTED" &&
-                "✓ تم تسجيل العد (صنف غير معرّف في النظام)"}
+                "✓ تم تسجيل العد (صنف غير معرّف — يمكنك ربطه أدناه)"}
               {lastResult.status === "ACCUMULATED" &&
                 `✓ تم التجميع: ${lastResult.previousQty} + ${lastResult.addedQty} = ${lastResult.totalQty}`}
               {lastResult.status === "UPDATED" &&
@@ -304,6 +323,20 @@ export default function CountPage() {
               </p>
             )}
           </div>
+        )}
+
+        {showLinkPanel && linkBarcode && (
+          <LinkBarcodePanel
+            barcode={linkBarcode}
+            onClose={() => setShowLinkPanel(false)}
+            onLinked={(item) => {
+              setShowLinkPanel(false)
+              setLastResult({
+                status: "COUNTED",
+                record: { qrCodeScanned: linkBarcode, item },
+              })
+            }}
+          />
         )}
 
         {history.length > 0 && (
