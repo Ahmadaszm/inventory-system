@@ -119,6 +119,12 @@ export default async function StocktakeDetailPage({
             تصدير Excel
           </a>
           <Link
+            href={`/stocktake/${stocktake.id}/print`}
+            className="bg-slate-500 hover:bg-slate-600 text-white px-5 py-2.5 rounded-lg font-medium"
+          >
+            🖨️ طباعة التقرير
+          </Link>
+          <Link
             href={`/stocktake/${stocktake.id}/reconciliation`}
             className="bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2.5 rounded-lg font-medium"
           >
