@@ -89,3 +89,64 @@ export async function GET(
     recordCount: records.length,
   })
 }
+
+export async function DELETE(
+  req: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const session = await getServerSession(authOptions)
+  if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+
+  const user = session.user as any
+  const { id: sessionId } = await params
+
+  const { searchParams } = new URL(req.url)
+  let recordId = searchParams.get("recordId")
+  if (!recordId) {
+    try {
+      const body = await req.json()
+      recordId = body.recordId
+    } catch {
+      /* empty */
+    }
+  }
+  if (!recordId) {
+    return NextResponse.json({ error: "recordId مطلوب" }, { status: 400 })
+  }
+
+  const stocktake = await prisma.stocktakeSession.findUnique({ where: { id: sessionId } })
+  if (!stocktake) {
+    return NextResponse.json({ error: "الجلسة غير موجودة" }, { status: 404 })
+  }
+  if (["CLOSED", "APPROVED", "CANCELLED"].includes(stocktake.status)) {
+    return NextResponse.json({ error: "لا يمكن الحذف من جلسة مغلقة" }, { status: 400 })
+  }
+
+  const record = await prisma.countRecord.findFirst({
+    where: { id: recordId, sessionId },
+  })
+  if (!record) {
+    return NextResponse.json({ error: "السجل غير موجود" }, { status: 404 })
+  }
+
+  const isManager = ["SYSTEM_ADMIN", "INVENTORY_MANAGER", "WAREHOUSE_SUPERVISOR"].includes(
+    user.role
+  )
+  if (!isManager && record.countedById !== user.id) {
+    return NextResponse.json({ error: "ليس لديك صلاحية حذف هذا السجل" }, { status: 403 })
+  }
+
+  await prisma.countRecord.delete({ where: { id: recordId } })
+
+  await prisma.sessionProgress
+    .update({
+      where: { sessionId },
+      data: {
+        totalCounted: { decrement: 1 },
+        unknownCount: record.isUnknownQr ? { decrement: 1 } : undefined,
+      },
+    })
+    .catch(() => {})
+
+  return NextResponse.json({ ok: true, deletedId: recordId })
+}
