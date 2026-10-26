@@ -46,13 +46,18 @@ export default function CountPage() {
       const res = await fetch(`/api/stocktake/${sessionId}/records`)
       if (!res.ok) return
       const data = await res.json()
-      const rows = (data.aggregated || []).map((r: any) => ({
+      const rows = (data.records || []).map((r: any) => ({
+        id: r.id,
+        recordId: r.recordId,
         qr: r.qr || "",
         status: r.isUnknown ? "UNKNOWN_COUNTED" : "COUNTED",
         qty: r.qty,
-        time: r.lastAt ? new Date(r.lastAt).toLocaleTimeString("ar-EG") : "",
+        mode: r.mode || "add",
+        time: r.countedAt ? new Date(r.countedAt).toLocaleTimeString("ar-EG") : "",
         item: r.nameAr || r.sku || r.qr || "",
         sku: r.sku || "",
+        countedBy: r.countedBy || "",
+        totalForItem: r.totalForItem ?? r.qty,
       }))
       setHistory(rows)
     } catch {
@@ -163,7 +168,7 @@ export default function CountPage() {
 
   function startEdit(h: any) {
     setQrInput(h.qr)
-    setQty(String(h.qty))
+    setQty(String(h.totalForItem ?? h.qty))
     setEditMode(true)
     identifyBarcode(h.qr)
     qtyRef.current?.focus()
@@ -212,6 +217,17 @@ export default function CountPage() {
 
   const okStatuses = ["COUNTED", "UNKNOWN_COUNTED", "ACCUMULATED", "UPDATED"]
 
+  // Group history by recordId for display
+  const groups = (() => {
+    const map = new Map<string, any[]>()
+    for (const h of history) {
+      const key = h.recordId || h.qr || h.sku || h.id
+      if (!map.has(key)) map.set(key, [])
+      map.get(key)!.push(h)
+    }
+    return Array.from(map.entries())
+  })()
+
   return (
     <div className="min-h-screen bg-slate-100" dir="rtl">
       <header className="bg-[#9B1B1E] text-white px-4 py-3 flex justify-between items-center">
@@ -221,7 +237,7 @@ export default function CountPage() {
           </Link>
           <h1 className="font-bold">شاشة العد والمسح</h1>
         </div>
-        <div className="text-sm text-white/70">{history.length} صنف</div>
+        <div className="text-sm text-white/70">{groups.length} صنف</div>
       </header>
 
       <main className="p-4 max-w-lg mx-auto space-y-4">
@@ -244,7 +260,7 @@ export default function CountPage() {
 
           {editMode && (
             <div className="bg-amber-50 border border-amber-300 text-amber-900 text-sm p-3 rounded-lg flex justify-between items-center">
-              <span>وضع التعديل: سيتم استبدال الكمية بالقيمة الجديدة</span>
+              <span>وضع التعديل: سيتم استبدال الكمية الإجمالية</span>
               <button type="button" className="text-xs underline" onClick={() => { setEditMode(false); setQty("") }}>إلغاء</button>
             </div>
           )}
@@ -354,37 +370,63 @@ export default function CountPage() {
         )}
 
         <div className="bg-white rounded-xl shadow overflow-hidden">
-          <div className="px-4 py-2 bg-slate-50 font-medium text-sm border-b flex justify-between">
-            <span>تفاصيل عمليات الجرد (يمكن تعديل الكمية)</span>
+          <div className="px-4 py-2 bg-slate-50 font-medium text-sm border-b flex justify-between items-center">
+            <span>تفاصيل عمليات الجرد — كل عملية + المجموع</span>
             <button type="button" onClick={loadHistory} className="text-xs text-blue-600">تحديث</button>
           </div>
-          {history.length === 0 ? (
+          {groups.length === 0 ? (
             <p className="p-6 text-center text-slate-400 text-sm">لا توجد سجلات بعد</p>
           ) : (
-            <ul className="divide-y max-h-96 overflow-y-auto">
-              {history.map((h, i) => (
-                <li key={i} className="px-4 py-2.5 text-sm flex flex-col gap-1">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="font-medium truncate">{h.item || h.qr || "—"}</span>
-                    <span className="font-bold text-blue-800 text-base shrink-0">{h.qty}</span>
+            <div className="max-h-[28rem] overflow-y-auto">
+              {groups.map(([key, rows]) => {
+                const total = rows[0].totalForItem ?? rows.reduce((s: number, r: any) => s + Number(r.qty || 0), 0)
+                const title = rows[0].item || rows[0].sku || rows[0].qr || key
+                const sku = rows[0].sku || rows[0].qr || ""
+                const ordered = [...rows].reverse()
+                return (
+                  <div key={key} className="border-b last:border-0">
+                    <div className="px-4 py-2 bg-slate-100 flex items-center justify-between gap-2 sticky top-0">
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold leading-snug">{title}</p>
+                        <p className="text-xs font-mono text-slate-500" dir="ltr">{sku}</p>
+                      </div>
+                      <div className="text-left shrink-0">
+                        <p className="text-[11px] text-slate-500">المجموع</p>
+                        <p className="text-lg font-bold text-blue-800">{total}</p>
+                      </div>
+                    </div>
+                    <ul>
+                      {ordered.map((h: any, i: number) => (
+                        <li key={h.id || i} className="px-4 py-2 text-sm flex items-center justify-between gap-2 border-t border-slate-50 bg-white">
+                          <div className="flex flex-wrap items-center gap-2 text-xs text-slate-600">
+                            <span className="text-slate-400">عملية {i + 1}</span>
+                            <span>{h.time}</span>
+                            {h.countedBy && <span>{h.countedBy}</span>}
+                            <span className={h.status === "UNKNOWN_COUNTED" ? "text-amber-600" : "text-green-600"}>
+                              {h.mode === "replace" ? "تعديل" : h.status === "UNKNOWN_COUNTED" ? "غير معرّف" : "عدّ"}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className="font-bold text-blue-700">
+                              {h.mode === "replace" ? "=" : "+"}{h.qty}
+                            </span>
+                            {i === ordered.length - 1 && (
+                              <button
+                                type="button"
+                                onClick={() => startEdit(h)}
+                                className="text-[11px] text-[#9B1B1E] border border-[#9B1B1E]/40 px-2 py-0.5 rounded hover:bg-red-50"
+                              >
+                                تعديل المجموع
+                              </button>
+                            )}
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
                   </div>
-                  <div className="flex items-center justify-between gap-2 text-xs text-slate-500">
-                    <span className="font-mono" dir="ltr">{h.sku || h.qr}</span>
-                    <span>{h.time}</span>
-                    <span className="text-green-600">
-                      {h.status === "UNKNOWN_COUNTED" ? "غير معرّف" : "تم"}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => startEdit(h)}
-                      className="text-[#9B1B1E] border border-[#9B1B1E]/40 px-2 py-0.5 rounded hover:bg-red-50"
-                    >
-                      تعديل الكمية
-                    </button>
-                  </div>
-                </li>
-              ))}
-            </ul>
+                )
+              })}
+            </div>
           )}
         </div>
       </main>
