@@ -41,6 +41,29 @@ export default function CountPage() {
     if (status === "unauthenticated") router.push("/login")
   }, [status, router])
 
+  async function loadHistory() {
+    try {
+      const res = await fetch(`/api/stocktake/${sessionId}/records`)
+      if (!res.ok) return
+      const data = await res.json()
+      const rows = (data.aggregated || []).map((r: any) => ({
+        qr: r.qr || "",
+        status: r.isUnknown ? "UNKNOWN_COUNTED" : "COUNTED",
+        qty: r.qty,
+        time: r.lastAt ? new Date(r.lastAt).toLocaleTimeString("ar-EG") : "",
+        item: r.nameAr || r.sku || r.qr || "",
+        sku: r.sku || "",
+      }))
+      setHistory(rows)
+    } catch {
+      /* ignore */
+    }
+  }
+
+  useEffect(() => {
+    if (status === "authenticated" && sessionId) loadHistory()
+  }, [status, sessionId])
+
   useEffect(() => {
     return () => {
       stopCamera()
@@ -82,10 +105,8 @@ export default function CountPage() {
     if (!code.trim() || loading) return
     setLoading(true)
     setLastResult(null)
-
     const clientEventId = uuid()
     const qrClean = code.replace(/[\r\n]+/g, " ").trim()
-
     try {
       const res = await fetch("/api/scan", {
         method: "POST",
@@ -100,7 +121,6 @@ export default function CountPage() {
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || "فشل التسجيل")
-
       setLastResult(data)
       if (data.status === "UNKNOWN_COUNTED" || data.record?.isUnknownQr) {
         setLinkBarcode(qrClean)
@@ -115,30 +135,11 @@ export default function CountPage() {
           qrCode: qrClean,
         })
       }
-      const displayQty = data.totalQty ?? countedQty
-      const label =
-        data.record?.item?.nameAr ||
-        data.record?.item?.sku ||
-        data.record?.qrCodeScanned ||
-        qrClean
-
-      setHistory((h) => {
-        const filtered = h.filter((x) => x.qr !== qrClean)
-        return [
-          {
-            qr: qrClean,
-            status: data.status,
-            qty: displayQty,
-            time: new Date().toLocaleTimeString("ar-EG"),
-            item: label,
-          },
-          ...filtered.slice(0, 19),
-        ]
-      })
       setQrInput("")
       setQty("")
       setEditMode(false)
       inputRef.current?.focus()
+      await loadHistory()
     } catch (err: any) {
       setLastResult({ status: "ERROR", message: err.message })
     } finally {
@@ -182,9 +183,7 @@ export default function CountPage() {
           const code = decodedText.replace(/[\r\n]+/g, " ").trim()
           setQrInput(code)
           identifyBarcode(code)
-          if (typeof navigator !== "undefined" && navigator.vibrate) {
-            navigator.vibrate(80)
-          }
+          if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate(80)
           qtyRef.current?.focus()
         },
         () => {}
@@ -222,54 +221,31 @@ export default function CountPage() {
           </Link>
           <h1 className="font-bold">شاشة العد والمسح</h1>
         </div>
-        <div className="text-sm text-white/70">{history.length} عملية</div>
+        <div className="text-sm text-white/70">{history.length} صنف</div>
       </header>
 
       <main className="p-4 max-w-lg mx-auto space-y-4">
         <div className="bg-white rounded-xl shadow p-4 space-y-3">
           {!cameraActive ? (
-            <button
-              type="button"
-              onClick={startCamera}
-              className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-medium py-3 rounded-lg"
-            >
+            <button type="button" onClick={startCamera} className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-medium py-3 rounded-lg">
               📷 تشغيل الكاميرا
             </button>
           ) : (
-            <button
-              type="button"
-              onClick={stopCamera}
-              className="w-full bg-red-600 hover:bg-red-700 text-white font-medium py-3 rounded-lg"
-            >
+            <button type="button" onClick={stopCamera} className="w-full bg-red-600 hover:bg-red-700 text-white font-medium py-3 rounded-lg">
               ⏹ إيقاف الكاميرا
             </button>
           )}
 
           {cameraError && (
-            <div className="bg-amber-50 border border-amber-200 text-amber-800 p-3 rounded-lg text-sm">
-              {cameraError}
-            </div>
+            <div className="bg-amber-50 border border-amber-200 text-amber-800 p-3 rounded-lg text-sm">{cameraError}</div>
           )}
 
-          <div
-            id={scannerContainerId}
-            className={`overflow-hidden rounded-xl ${cameraActive ? "block" : "hidden"}`}
-            style={{ minHeight: cameraActive ? 260 : 0 }}
-          />
+          <div id={scannerContainerId} className={`overflow-hidden rounded-xl ${cameraActive ? "block" : "hidden"}`} style={{ minHeight: cameraActive ? 260 : 0 }} />
 
           {editMode && (
             <div className="bg-amber-50 border border-amber-300 text-amber-900 text-sm p-3 rounded-lg flex justify-between items-center">
               <span>وضع التعديل: سيتم استبدال الكمية بالقيمة الجديدة</span>
-              <button
-                type="button"
-                className="text-xs underline"
-                onClick={() => {
-                  setEditMode(false)
-                  setQty("")
-                }}
-              >
-                إلغاء
-              </button>
+              <button type="button" className="text-xs underline" onClick={() => { setEditMode(false); setQty("") }}>إلغاء</button>
             </div>
           )}
 
@@ -280,13 +256,8 @@ export default function CountPage() {
                 ref={inputRef}
                 type="text"
                 value={qrInput}
-                onChange={(e) => {
-                  setQrInput(e.target.value)
-                  setIdentifiedItem(null)
-                }}
-                onBlur={(e) => {
-                  if (e.target.value.trim()) identifyBarcode(e.target.value)
-                }}
+                onChange={(e) => { setQrInput(e.target.value); setIdentifiedItem(null) }}
+                onBlur={(e) => { if (e.target.value.trim()) identifyBarcode(e.target.value) }}
                 placeholder="امسح بالكاميرا أو اكتب الرمز..."
                 className="w-full border-2 border-slate-300 rounded-lg px-4 py-3 text-lg font-mono focus:border-[#9B1B1E] outline-none"
                 dir="ltr"
@@ -294,16 +265,12 @@ export default function CountPage() {
               />
             </div>
 
-            {identifying && (
-              <p className="text-xs text-slate-500">جاري التعرف على الصنف...</p>
-            )}
+            {identifying && <p className="text-xs text-slate-500">جاري التعرف على الصنف...</p>}
             {identifiedItem && (
               <div className="bg-emerald-50 border-2 border-emerald-400 rounded-lg p-3">
                 <p className="font-bold text-emerald-800 text-sm">✓ صنف معرّف</p>
                 <p className="text-emerald-950 mt-1 font-medium">
-                  <span className="font-mono text-sm" dir="ltr">
-                    {identifiedItem.sku}
-                  </span>
+                  <span className="font-mono text-sm" dir="ltr">{identifiedItem.sku}</span>
                   <span className="mx-1">—</span>
                   {identifiedItem.nameAr}
                 </p>
@@ -318,11 +285,7 @@ export default function CountPage() {
             <div>
               <label className="block text-sm font-medium mb-1 text-blue-800">
                 الكمية (يدوياً — إلزامي)
-                {!editMode && (
-                  <span className="text-xs text-slate-500 font-normal mr-2">
-                    — إعادة المسح تجمع الكميات
-                  </span>
-                )}
+                {!editMode && <span className="text-xs text-slate-500 font-normal mr-2">— إعادة المسح تجمع الكميات</span>}
               </label>
               <input
                 ref={qtyRef}
@@ -342,19 +305,12 @@ export default function CountPage() {
               disabled={loading || !qrInput.trim() || qty === ""}
               className="w-full bg-[#9B1B1E] hover:bg-[#7f1518] text-white font-bold py-3 rounded-lg disabled:opacity-50 text-lg"
             >
-              {loading
-                ? "جاري التسجيل..."
-                : editMode
-                ? "حفظ الكمية المعدّلة"
-                : "تسجيل العد"}
+              {loading ? "جاري التسجيل..." : editMode ? "حفظ الكمية المعدّلة" : "تسجيل العد"}
             </button>
             {qrInput.trim() && (
               <button
                 type="button"
-                onClick={() => {
-                  setLinkBarcode(qrInput.trim())
-                  setShowLinkPanel(true)
-                }}
+                onClick={() => { setLinkBarcode(qrInput.trim()); setShowLinkPanel(true) }}
                 className="w-full border border-[#9B1B1E] text-[#9B1B1E] font-medium py-2.5 rounded-lg text-sm"
               >
                 تعريف / ربط هذا الباركود بصنف
@@ -364,35 +320,22 @@ export default function CountPage() {
         </div>
 
         {lastResult && (
-          <div
-            className={`rounded-xl p-4 border-2 ${
-              okStatuses.includes(lastResult.status)
-                ? "bg-green-50 border-green-300"
-                : lastResult.status === "ERROR"
-                ? "bg-red-50 border-red-300"
-                : "bg-slate-50 border-slate-300"
-            }`}
-          >
+          <div className={`rounded-xl p-4 border-2 ${
+            okStatuses.includes(lastResult.status)
+              ? "bg-green-50 border-green-300"
+              : lastResult.status === "ERROR"
+              ? "bg-red-50 border-red-300"
+              : "bg-slate-50 border-slate-300"
+          }`}>
             <p className="font-bold text-lg">
               {lastResult.status === "COUNTED" && "✓ تم التسجيل بنجاح"}
-              {lastResult.status === "UNKNOWN_COUNTED" &&
-                "✓ تم تسجيل العد (صنف غير معرّف — يمكنك ربطه أدناه)"}
-              {lastResult.status === "ACCUMULATED" &&
-                `✓ تم التجميع: ${lastResult.previousQty} + ${lastResult.addedQty} = ${lastResult.totalQty}`}
-              {lastResult.status === "UPDATED" &&
-                `✓ تم تعديل الكمية إلى ${lastResult.totalQty}`}
+              {lastResult.status === "UNKNOWN_COUNTED" && "✓ تم تسجيل العد (صنف غير معرّف)"}
+              {lastResult.status === "ACCUMULATED" && `✓ تم التجميع: ${lastResult.previousQty} + ${lastResult.addedQty} = ${lastResult.totalQty}`}
+              {lastResult.status === "UPDATED" && `✓ تم تعديل الكمية إلى ${lastResult.totalQty}`}
               {lastResult.status === "ERROR" && `خطأ: ${lastResult.message}`}
-              {lastResult.status === "ALREADY_SYNCED" && "تم مزامنته مسبقاً"}
             </p>
-            {lastResult.record?.qrCodeScanned && (
-              <p className="mt-1 text-sm font-mono break-all" dir="ltr">
-                {lastResult.record.qrCodeScanned}
-              </p>
-            )}
             {lastResult.record?.item && (
-              <p className="mt-1 text-sm">
-                {lastResult.record.item.sku} — {lastResult.record.item.nameAr}
-              </p>
+              <p className="mt-1 text-sm">{lastResult.record.item.sku} — {lastResult.record.item.nameAr}</p>
             )}
           </div>
         )}
@@ -403,51 +346,47 @@ export default function CountPage() {
             onClose={() => setShowLinkPanel(false)}
             onLinked={(item) => {
               setShowLinkPanel(false)
-              setIdentifiedItem({
-                sku: item.sku,
-                nameAr: item.nameAr,
-                nameEn: item.nameEn,
-                qrCode: linkBarcode,
-              })
-              setLastResult({
-                status: "COUNTED",
-                record: { qrCodeScanned: linkBarcode, item },
-              })
+              setIdentifiedItem({ sku: item.sku, nameAr: item.nameAr, nameEn: item.nameEn, qrCode: linkBarcode })
+              setLastResult({ status: "COUNTED", record: { qrCodeScanned: linkBarcode, item } })
+              loadHistory()
             }}
           />
         )}
 
-        {history.length > 0 && (
-          <div className="bg-white rounded-xl shadow overflow-hidden">
-            <div className="px-4 py-2 bg-slate-50 font-medium text-sm border-b">
-              سجل الجلسة الحالية
-            </div>
-            <ul className="divide-y max-h-72 overflow-y-auto">
+        <div className="bg-white rounded-xl shadow overflow-hidden">
+          <div className="px-4 py-2 bg-slate-50 font-medium text-sm border-b flex justify-between">
+            <span>تفاصيل عمليات الجرد (يمكن تعديل الكمية)</span>
+            <button type="button" onClick={loadHistory} className="text-xs text-blue-600">تحديث</button>
+          </div>
+          {history.length === 0 ? (
+            <p className="p-6 text-center text-slate-400 text-sm">لا توجد سجلات بعد</p>
+          ) : (
+            <ul className="divide-y max-h-96 overflow-y-auto">
               {history.map((h, i) => (
-                <li key={i} className="px-4 py-2.5 text-sm flex items-center justify-between gap-2">
-                  <span className="truncate max-w-[140px]" title={h.item || h.qr}>
-                    {h.item || h.qr}
-                  </span>
-                  <span className="font-bold text-blue-800">{h.qty}</span>
-                  <span className="text-green-600 text-xs">
-                    {h.status === "ACCUMULATED"
-                      ? "تجميع"
-                      : h.status === "UPDATED"
-                      ? "تعديل"
-                      : "تم"}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => startEdit(h)}
-                    className="text-xs text-[#9B1B1E] border border-[#9B1B1E]/40 px-2 py-1 rounded hover:bg-red-50"
-                  >
-                    تعديل
-                  </button>
+                <li key={i} className="px-4 py-2.5 text-sm flex flex-col gap-1">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-medium truncate">{h.item || h.qr || "—"}</span>
+                    <span className="font-bold text-blue-800 text-base shrink-0">{h.qty}</span>
+                  </div>
+                  <div className="flex items-center justify-between gap-2 text-xs text-slate-500">
+                    <span className="font-mono" dir="ltr">{h.sku || h.qr}</span>
+                    <span>{h.time}</span>
+                    <span className="text-green-600">
+                      {h.status === "UNKNOWN_COUNTED" ? "غير معرّف" : "تم"}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => startEdit(h)}
+                      className="text-[#9B1B1E] border border-[#9B1B1E]/40 px-2 py-0.5 rounded hover:bg-red-50"
+                    >
+                      تعديل الكمية
+                    </button>
+                  </div>
                 </li>
               ))}
             </ul>
-          </div>
-        )}
+          )}
+        </div>
       </main>
     </div>
   )
