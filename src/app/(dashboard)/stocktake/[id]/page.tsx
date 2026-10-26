@@ -6,6 +6,7 @@ import Link from "next/link"
 import { StartStocktakeButton } from "./StartButton"
 import { extractProductCode, cleanQrText } from "@/lib/barcodeExtract"
 import { CompleteSessionButton } from "./CompleteButton"
+import { ApproveSessionButton } from "./ApproveButton"
 
 const statusLabels: Record<string, string> = {
   DRAFT: "مسودة",
@@ -124,6 +125,11 @@ export default async function StocktakeDetailPage({
             عرض التسوية والفروقات
           </Link>
           <CompleteSessionButton sessionId={stocktake.id} status={stocktake.status} />
+          <ApproveSessionButton
+            sessionId={stocktake.id}
+            status={stocktake.status}
+            recordsCount={stocktake._count.countRecords}
+          />
         </div>
 
         <div className="bg-white rounded-xl border shadow-sm overflow-hidden">
