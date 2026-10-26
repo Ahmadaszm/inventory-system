@@ -49,7 +49,7 @@ export default async function StocktakeReportPage() {
           </Link>
           <h1 className="text-xl font-bold mt-1">تقرير نتائج الجرد</h1>
           <p className="text-sm text-slate-500 mt-0.5">
-            ملخص الجلسات والكميات — تصدير Excel من كل جلسة
+            ملخص الجلسات والكميات — تصدير أو طباعة من كل جلسة
           </p>
         </div>
       </header>
@@ -122,6 +122,10 @@ export default async function StocktakeReportPage() {
                         >
                           Excel
                         </a>
+                        {" · "}
+                        <Link href={`/stocktake/${s.id}/print`} className="text-slate-700 hover:underline">
+                          طباعة
+                        </Link>
                       </td>
                     </tr>
                   )
@@ -133,10 +137,6 @@ export default async function StocktakeReportPage() {
             <p className="p-8 text-center text-slate-500">لا توجد جلسات جرد</p>
           )}
         </div>
-
-        <p className="text-xs text-slate-500">
-          ملف Excel: ملخص الجلسة + الباركود · اسم الصنف · الكمية · القائم بالجرد
-        </p>
       </main>
     </div>
   )
