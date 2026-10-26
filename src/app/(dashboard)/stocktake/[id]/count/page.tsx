@@ -30,6 +30,8 @@ export default function CountPage() {
   const [editMode, setEditMode] = useState(false)
   const [showLinkPanel, setShowLinkPanel] = useState(false)
   const [linkBarcode, setLinkBarcode] = useState("")
+  const [identifiedItem, setIdentifiedItem] = useState<any>(null)
+  const [identifying, setIdentifying] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
   const qtyRef = useRef<HTMLInputElement>(null)
   const scannerRef = useRef<any>(null)
@@ -44,6 +46,37 @@ export default function CountPage() {
       stopCamera()
     }
   }, [])
+
+  async function identifyBarcode(code: string) {
+    const qrClean = code.replace(/[\r\n]+/g, " ").trim()
+    if (!qrClean) {
+      setIdentifiedItem(null)
+      return
+    }
+    setIdentifying(true)
+    try {
+      const res = await fetch("/api/scan", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ qrCode: qrClean }),
+      })
+      const data = await res.json()
+      if (data.status === "FOUND" && data.carton?.item) {
+        setIdentifiedItem({
+          sku: data.carton.item.sku,
+          nameAr: data.carton.item.nameAr,
+          nameEn: data.carton.item.nameEn,
+          qrCode: data.carton.qrCode || qrClean,
+        })
+      } else {
+        setIdentifiedItem(null)
+      }
+    } catch {
+      setIdentifiedItem(null)
+    } finally {
+      setIdentifying(false)
+    }
+  }
 
   async function submitCount(code: string, countedQty: number, mode: "add" | "replace" = "add") {
     if (!code.trim() || loading) return
@@ -72,6 +105,15 @@ export default function CountPage() {
       if (data.status === "UNKNOWN_COUNTED" || data.record?.isUnknownQr) {
         setLinkBarcode(qrClean)
         setShowLinkPanel(true)
+        setIdentifiedItem(null)
+      }
+      if (data.record?.item) {
+        setIdentifiedItem({
+          sku: data.record.item.sku,
+          nameAr: data.record.item.nameAr,
+          nameEn: data.record.item.nameEn,
+          qrCode: qrClean,
+        })
       }
       const displayQty = data.totalQty ?? countedQty
       const label =
@@ -122,6 +164,7 @@ export default function CountPage() {
     setQrInput(h.qr)
     setQty(String(h.qty))
     setEditMode(true)
+    identifyBarcode(h.qr)
     qtyRef.current?.focus()
   }
 
@@ -138,6 +181,7 @@ export default function CountPage() {
         (decodedText) => {
           const code = decodedText.replace(/[\r\n]+/g, " ").trim()
           setQrInput(code)
+          identifyBarcode(code)
           if (typeof navigator !== "undefined" && navigator.vibrate) {
             navigator.vibrate(80)
           }
@@ -236,13 +280,41 @@ export default function CountPage() {
                 ref={inputRef}
                 type="text"
                 value={qrInput}
-                onChange={(e) => setQrInput(e.target.value)}
+                onChange={(e) => {
+                  setQrInput(e.target.value)
+                  setIdentifiedItem(null)
+                }}
+                onBlur={(e) => {
+                  if (e.target.value.trim()) identifyBarcode(e.target.value)
+                }}
                 placeholder="امسح بالكاميرا أو اكتب الرمز..."
                 className="w-full border-2 border-slate-300 rounded-lg px-4 py-3 text-lg font-mono focus:border-[#9B1B1E] outline-none"
                 dir="ltr"
                 autoComplete="off"
               />
             </div>
+
+            {identifying && (
+              <p className="text-xs text-slate-500">جاري التعرف على الصنف...</p>
+            )}
+            {identifiedItem && (
+              <div className="bg-emerald-50 border-2 border-emerald-400 rounded-lg p-3">
+                <p className="font-bold text-emerald-800 text-sm">✓ صنف معرّف</p>
+                <p className="text-emerald-950 mt-1 font-medium">
+                  <span className="font-mono text-sm" dir="ltr">
+                    {identifiedItem.sku}
+                  </span>
+                  <span className="mx-1">—</span>
+                  {identifiedItem.nameAr}
+                </p>
+              </div>
+            )}
+            {!identifying && qrInput.trim() && !identifiedItem && (
+              <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1.5">
+                لم يُعثر على صنف مرتبط — استخدم «تعريف / ربط» أدناه
+              </p>
+            )}
+
             <div>
               <label className="block text-sm font-medium mb-1 text-blue-800">
                 الكمية (يدوياً — إلزامي)
@@ -331,6 +403,12 @@ export default function CountPage() {
             onClose={() => setShowLinkPanel(false)}
             onLinked={(item) => {
               setShowLinkPanel(false)
+              setIdentifiedItem({
+                sku: item.sku,
+                nameAr: item.nameAr,
+                nameEn: item.nameEn,
+                qrCode: linkBarcode,
+              })
               setLastResult({
                 status: "COUNTED",
                 record: { qrCodeScanned: linkBarcode, item },
