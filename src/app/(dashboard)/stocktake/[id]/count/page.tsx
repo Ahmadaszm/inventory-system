@@ -174,6 +174,23 @@ export default function CountPage() {
     qtyRef.current?.focus()
   }
 
+  async function deleteRecord(h: any) {
+    const label = h.item || h.sku || h.qr || "هذا الصنف"
+    if (!confirm(`هل تريد حذف «${label}» من الجرد؟\nالكمية المحذوفة: ${h.totalForItem ?? h.qty}`)) return
+    try {
+      const res = await fetch(
+        `/api/stocktake/${sessionId}/records?recordId=${encodeURIComponent(h.recordId || h.id)}`,
+        { method: "DELETE" }
+      )
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || "فشل الحذف")
+      setLastResult({ status: "UPDATED", message: "تم الحذف" })
+      await loadHistory()
+    } catch (e: any) {
+      setLastResult({ status: "ERROR", message: e.message })
+    }
+  }
+
   async function startCamera() {
     setCameraError("")
     setCameraActive(true)
@@ -217,7 +234,6 @@ export default function CountPage() {
 
   const okStatuses = ["COUNTED", "UNKNOWN_COUNTED", "ACCUMULATED", "UPDATED"]
 
-  // Group history by recordId for display
   const groups = (() => {
     const map = new Map<string, any[]>()
     for (const h of history) {
@@ -347,7 +363,7 @@ export default function CountPage() {
               {lastResult.status === "COUNTED" && "✓ تم التسجيل بنجاح"}
               {lastResult.status === "UNKNOWN_COUNTED" && "✓ تم تسجيل العد (صنف غير معرّف)"}
               {lastResult.status === "ACCUMULATED" && `✓ تم التجميع: ${lastResult.previousQty} + ${lastResult.addedQty} = ${lastResult.totalQty}`}
-              {lastResult.status === "UPDATED" && `✓ تم تعديل الكمية إلى ${lastResult.totalQty}`}
+              {lastResult.status === "UPDATED" && (lastResult.message || `✓ تم تعديل الكمية إلى ${lastResult.totalQty}`)}
               {lastResult.status === "ERROR" && `خطأ: ${lastResult.message}`}
             </p>
             {lastResult.record?.item && (
@@ -390,9 +406,19 @@ export default function CountPage() {
                         <p className="text-sm font-semibold leading-snug">{title}</p>
                         <p className="text-xs font-mono text-slate-500" dir="ltr">{sku}</p>
                       </div>
-                      <div className="text-left shrink-0">
-                        <p className="text-[11px] text-slate-500">المجموع</p>
-                        <p className="text-lg font-bold text-blue-800">{total}</p>
+                      <div className="flex items-center gap-3 shrink-0">
+                        <div className="text-left">
+                          <p className="text-[11px] text-slate-500">المجموع</p>
+                          <p className="text-lg font-bold text-blue-800">{total}</p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => deleteRecord(rows[0])}
+                          className="text-[11px] text-red-700 border border-red-300 px-2 py-1 rounded hover:bg-red-50"
+                          title="حذف الصنف من الجرد"
+                        >
+                          حذف
+                        </button>
                       </div>
                     </div>
                     <ul>
@@ -416,7 +442,7 @@ export default function CountPage() {
                                 onClick={() => startEdit(h)}
                                 className="text-[11px] text-[#9B1B1E] border border-[#9B1B1E]/40 px-2 py-0.5 rounded hover:bg-red-50"
                               >
-                                تعديل المجموع
+                                تعديل
                               </button>
                             )}
                           </div>
