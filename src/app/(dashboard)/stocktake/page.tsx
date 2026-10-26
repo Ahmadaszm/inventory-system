@@ -3,6 +3,7 @@ import { authOptions } from "@/lib/auth/options"
 import { redirect } from "next/navigation"
 import prisma from "@/lib/prisma"
 import Link from "next/link"
+import { SessionActions } from "./SessionActions"
 
 const statusLabels: Record<string, { ar: string; en: string; color: string }> = {
   DRAFT: { ar: "مسودة", en: "Draft", color: "bg-slate-100 text-slate-700" },
@@ -29,8 +30,6 @@ export default async function StocktakeListPage() {
     user.role === "WAREHOUSE_SUPERVISOR" ||
     user.role === "APPROVER_AUDITOR"
 
-  // Managers see ALL sessions (including surprise/hidden).
-  // Counters see public sessions + sessions they created.
   const sessions = await prisma.stocktakeSession.findMany({
     where: isManager
       ? undefined
@@ -80,35 +79,47 @@ export default async function StocktakeListPage() {
             {sessions.map((s) => {
               const st = statusLabels[s.status] || statusLabels.DRAFT
               return (
-                <Link
+                <div
                   key={s.id}
-                  href={`/stocktake/${s.id}`}
-                  className="block bg-white rounded-xl border p-4 hover:border-blue-300 hover:shadow-sm transition"
+                  className="bg-white rounded-xl border p-4 hover:border-blue-300 hover:shadow-sm transition"
                 >
                   <div className="flex flex-wrap justify-between gap-3">
-                    <div>
-                      <div className="flex flex-wrap items-center gap-2 mb-1">
-                        <span className="font-mono text-xs text-slate-500">{s.sessionNumber}</span>
-                        <span className={`text-xs px-2 py-0.5 rounded-full ${st.color}`}>
-                          {isAr ? st.ar : st.en}
-                        </span>
-                        {s.isSurprise && (
-                          <span className="text-xs px-2 py-0.5 rounded-full bg-pink-100 text-pink-700">
-                            {isAr ? "مفاجئ" : "Surprise"}
+                    <div className="min-w-0 flex-1">
+                      <Link href={`/stocktake/${s.id}`} className="block group">
+                        <div className="flex flex-wrap items-center gap-2 mb-1">
+                          <span className="font-mono text-xs text-slate-500">{s.sessionNumber}</span>
+                          <span className={`text-xs px-2 py-0.5 rounded-full ${st.color}`}>
+                            {isAr ? st.ar : st.en}
                           </span>
-                        )}
-                        {s.isBlind && (
-                          <span className="text-xs px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">
-                            {isAr ? "أعمى" : "Blind"}
-                          </span>
-                        )}
-                      </div>
-                      <h2 className="font-bold text-slate-800">{s.titleAr || s.title}</h2>
-                      <p className="text-xs text-slate-500 mt-1">
-                        {isAr ? "بواسطة" : "By"}:{" "}
-                        {s.createdBy?.nameAr || s.createdBy?.name || "—"} ·{" "}
-                        {new Date(s.countDate).toLocaleDateString(isAr ? "ar-EG" : "en-GB")}
-                      </p>
+                          {s.isSurprise && (
+                            <span className="text-xs px-2 py-0.5 rounded-full bg-pink-100 text-pink-700">
+                              {isAr ? "مفاجئ" : "Surprise"}
+                            </span>
+                          )}
+                          {s.isBlind && (
+                            <span className="text-xs px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">
+                              {isAr ? "أعمى" : "Blind"}
+                            </span>
+                          )}
+                        </div>
+                        <h2 className="font-bold text-slate-800 group-hover:text-blue-700">
+                          {s.titleAr || s.title}
+                        </h2>
+                        <p className="text-xs text-slate-500 mt-1">
+                          {isAr ? "بواسطة" : "By"}:{" "}
+                          {s.createdBy?.nameAr || s.createdBy?.name || "—"} ·{" "}
+                          {new Date(s.countDate).toLocaleDateString(isAr ? "ar-EG" : "en-GB")}
+                        </p>
+                      </Link>
+                      {isManager && (
+                        <SessionActions
+                          sessionId={s.id}
+                          title={s.title}
+                          titleAr={s.titleAr}
+                          status={s.status}
+                          recordsCount={s._count.countRecords}
+                        />
+                      )}
                     </div>
                     <div className="text-sm text-slate-600 space-y-0.5 min-w-[100px]">
                       <div>
@@ -125,7 +136,7 @@ export default async function StocktakeListPage() {
                       </div>
                     </div>
                   </div>
-                </Link>
+                </div>
               )
             })}
           </div>
