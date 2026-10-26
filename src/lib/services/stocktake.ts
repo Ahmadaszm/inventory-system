@@ -97,7 +97,10 @@ export async function recordCount(params: {
   notes?: string
   isDamaged?: boolean
   deviceInfo?: string
+  mode?: "add" | "replace"
 }) {
+  const mode = params.mode === "replace" ? "replace" : "add"
+
   if (params.clientEventId) {
     const existing = await prisma.countRecord.findFirst({
       where: { clientEventId: params.clientEventId },
@@ -133,6 +136,41 @@ export async function recordCount(params: {
   })
 
   if (!carton || !carton.isActive) {
+    const existingUnknown = await prisma.countRecord.findFirst({
+      where: {
+        sessionId: params.sessionId,
+        qrCodeScanned: qrClean,
+        isUnknownQr: true,
+      },
+      orderBy: { countedAt: "desc" },
+    })
+
+    if (existingUnknown) {
+      const prev = Number(existingUnknown.countedQty)
+      const nextQty = mode === "replace" ? params.countedQty : prev + params.countedQty
+      const record = await prisma.countRecord.update({
+        where: { id: existingUnknown.id },
+        data: {
+          countedQty: nextQty,
+          notes:
+            params.notes ||
+            (mode === "replace"
+              ? `تم تعديل الكمية إلى ${nextQty}`
+              : `تجميع: ${prev} + ${params.countedQty} = ${nextQty}`),
+          countedAt: new Date(),
+          isDuplicate: false,
+        },
+        include: { item: true },
+      })
+      return {
+        status: mode === "replace" ? "UPDATED" : "ACCUMULATED",
+        record,
+        previousQty: prev,
+        addedQty: mode === "replace" ? null : params.countedQty,
+        totalQty: nextQty,
+      }
+    }
+
     const record = await prisma.countRecord.create({
       data: {
         session: { connect: { id: params.sessionId } },
@@ -171,14 +209,38 @@ export async function recordCount(params: {
         cartonId: carton.id,
       },
     },
+    include: { item: true, carton: true },
   })
 
   if (existingCount) {
-    await prisma.countRecord.update({
+    const prev = Number(existingCount.countedQty)
+    const nextQty = mode === "replace" ? params.countedQty : prev + params.countedQty
+    const bookQty =
+      existingCount.bookQty != null ? Number(existingCount.bookQty) : null
+    const variance = bookQty !== null ? nextQty - bookQty : null
+    const record = await prisma.countRecord.update({
       where: { id: existingCount.id },
-      data: { isDuplicate: true },
+      data: {
+        countedQty: nextQty,
+        varianceQty: variance,
+        status: variance !== null && variance !== 0 ? "DISCREPANCY" : "COUNTED",
+        isDuplicate: false,
+        notes:
+          params.notes ||
+          (mode === "replace"
+            ? `تم تعديل الكمية إلى ${nextQty}`
+            : `تجميع: ${prev} + ${params.countedQty} = ${nextQty}`),
+        countedAt: new Date(),
+      },
+      include: { item: true, carton: true, batch: true, location: true },
     })
-    return { status: "DUPLICATE", record: existingCount }
+    return {
+      status: mode === "replace" ? "UPDATED" : "ACCUMULATED",
+      record,
+      previousQty: prev,
+      addedQty: mode === "replace" ? null : params.countedQty,
+      totalQty: nextQty,
+    }
   }
 
   let bookQty: number | null = null
