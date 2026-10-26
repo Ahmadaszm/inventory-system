@@ -3,15 +3,28 @@ import { getServerSession } from "next-auth"
 import { authOptions, hasPermission } from "@/lib/auth/options"
 import prisma from "@/lib/prisma"
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
+  const q = (req.nextUrl.searchParams.get("q") || "").trim()
   const items = await prisma.item.findMany({
-    where: { isActive: true },
+    where: {
+      isActive: true,
+      ...(q
+        ? {
+            OR: [
+              { sku: { contains: q, mode: "insensitive" } },
+              { nameAr: { contains: q, mode: "insensitive" } },
+              { nameEn: { contains: q, mode: "insensitive" } },
+              { internalId: { contains: q, mode: "insensitive" } },
+            ],
+          }
+        : {}),
+    },
     include: { category: true, brand: true, _count: { select: { cartons: true } } },
     orderBy: { sku: "asc" },
-    take: 500,
+    take: q ? 30 : 500,
   })
   return NextResponse.json({ items })
 }
@@ -22,7 +35,7 @@ export async function POST(req: NextRequest) {
     if (!session?.user) return NextResponse.json({ error: "يجب تسجيل الدخول" }, { status: 401 })
 
     const user = session.user as any
-    if (!hasPermission(user.role, "items:write") && !hasPermission(user.role, "*")) {
+    if (!hasPermission(user.role, "items:write") && !hasPermission(user.role, "*") ) {
       return NextResponse.json({ error: "ليس لديك صلاحية إضافة أصناف" }, { status: 403 })
     }
 
