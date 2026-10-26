@@ -5,6 +5,7 @@ import prisma from "@/lib/prisma"
 import Link from "next/link"
 import { StartStocktakeButton } from "./StartButton"
 import { extractProductCode, cleanQrText } from "@/lib/barcodeExtract"
+import { CompleteSessionButton } from "./CompleteButton"
 
 const statusLabels: Record<string, string> = {
   DRAFT: "مسودة",
@@ -116,18 +117,19 @@ export default async function StocktakeDetailPage({
           >
             تصدير Excel
           </a>
-          {["COUNTING_COMPLETE", "UNDER_REVIEW", "IN_PROGRESS"].includes(stocktake.status) && (
-            <Link
-              href={`/stocktake/${stocktake.id}/reconciliation`}
-              className="bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2.5 rounded-lg font-medium"
-            >
-              عرض التسوية والفروقات
-            </Link>
-          )}
+          <Link
+            href={`/stocktake/${stocktake.id}/reconciliation`}
+            className="bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2.5 rounded-lg font-medium"
+          >
+            عرض التسوية والفروقات
+          </Link>
+          <CompleteSessionButton sessionId={stocktake.id} status={stocktake.status} />
         </div>
 
         <div className="bg-white rounded-xl border shadow-sm overflow-hidden">
-          <div className="px-5 py-4 border-b font-semibold">تقرير عمليات المسح</div>
+          <div className="px-5 py-4 border-b font-semibold">
+            تقرير عمليات المسح (سجل تفصيلي)
+          </div>
           {stocktake.countRecords.length === 0 ? (
             <div className="p-8 text-center text-slate-500">لا توجد سجلات عد بعد</div>
           ) : (
