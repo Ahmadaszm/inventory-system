@@ -3,6 +3,24 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth/options"
 import prisma from "@/lib/prisma"
 
+function parseScanLines(notes: string | null | undefined, fallbackQty: number, fallbackAt: Date) {
+  const lines = (notes || "")
+    .split("\n")
+    .map((l) => l.trim())
+    .filter((l) => l.startsWith("SCAN|"))
+  if (lines.length === 0) {
+    return [{ qty: fallbackQty, at: fallbackAt, mode: "add" as const }]
+  }
+  return lines.map((l) => {
+    const parts = l.split("|")
+    const flag = parts[1] || "+0"
+    const mode = flag.startsWith("=") ? ("replace" as const) : ("add" as const)
+    const qty = Math.abs(parseFloat(flag.replace(/^[+=]/, "")) || 0)
+    const at = parts[2] ? new Date(parts[2]) : fallbackAt
+    return { qty, at, mode }
+  })
+}
+
 export async function GET(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -22,42 +40,52 @@ export async function GET(
     take: 500,
   })
 
-  const map = new Map<string, any>()
+  const detail: any[] = []
+  const aggregated: any[] = []
+
   for (const r of records) {
-    const key = (r.qrCodeScanned || r.itemId || r.id).trim()
-    const qty = Number(r.countedQty)
-    const existing = map.get(key)
-    if (existing) {
-      existing.qty += qty
-      existing.lastAt = r.countedAt
-      existing.recordId = r.id
-    } else {
-      map.set(key, {
+    const steps = parseScanLines(r.notes, Number(r.countedQty), r.countedAt)
+    const total = Number(r.countedQty)
+    const nameAr = r.item?.nameAr || r.item?.nameEn || ""
+    const sku = r.item?.sku || ""
+    const qr = r.qrCodeScanned || ""
+    const countedBy = r.countedBy?.nameAr || r.countedBy?.name || ""
+
+    aggregated.push({
+      recordId: r.id,
+      qr,
+      qty: total,
+      sku,
+      nameAr,
+      isUnknown: !!r.isUnknownQr || !r.itemId,
+      countedBy,
+      lastAt: r.countedAt,
+      steps: steps.length,
+    })
+
+    const ordered = [...steps].reverse()
+    ordered.forEach((s, idx) => {
+      detail.push({
+        id: `${r.id}-${idx}`,
         recordId: r.id,
-        qr: r.qrCodeScanned,
-        qty,
-        sku: r.item?.sku || "",
-        nameAr: r.item?.nameAr || r.item?.nameEn || "",
+        qr,
+        qty: s.qty,
+        mode: s.mode,
+        time: s.at.toISOString(),
+        countedAt: s.at.toISOString(),
+        sku,
+        nameAr,
         isUnknown: !!r.isUnknownQr || !r.itemId,
-        countedBy: r.countedBy?.nameAr || r.countedBy?.name || "",
-        lastAt: r.countedAt,
-        status: r.isUnknownQr ? "UNKNOWN" : "COUNTED",
+        countedBy,
+        totalForItem: total,
       })
-    }
+    })
   }
 
   return NextResponse.json({
-    records: records.map((r) => ({
-      id: r.id,
-      qr: r.qrCodeScanned,
-      qty: Number(r.countedQty),
-      sku: r.item?.sku || "",
-      nameAr: r.item?.nameAr || r.item?.nameEn || "",
-      isUnknown: !!r.isUnknownQr || !r.itemId,
-      countedBy: r.countedBy?.nameAr || r.countedBy?.name || "",
-      countedAt: r.countedAt,
-    })),
-    aggregated: Array.from(map.values()),
-    total: records.length,
+    records: detail,
+    aggregated,
+    total: detail.length,
+    recordCount: records.length,
   })
 }
