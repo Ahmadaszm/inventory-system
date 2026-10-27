@@ -25,6 +25,7 @@ export default async function DashboardLayout({
   ]
   if (isAdmin) {
     nav.push({ href: "/users", labelAr: "المستخدمون", labelEn: "Users" })
+    nav.push({ href: "/backup", labelAr: "نسخة احتياطية", labelEn: "Backup" })
   }
 
   return (
