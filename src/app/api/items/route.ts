@@ -7,9 +7,12 @@ export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
-  const { arabicNormalize, arabicSearchVariants, matchesArabicSearch } = await import(
-    "@/lib/arabicSearch"
-  )
+  const {
+    arabicNormalize,
+    arabicSearchVariants,
+    matchesArabicSearch,
+    itemSearchBlob,
+  } = await import("@/lib/arabicSearch")
 
   const q = (req.nextUrl.searchParams.get("q") || "").trim()
   const variants = q ? arabicSearchVariants(q) : []
@@ -39,20 +42,7 @@ export async function GET(req: NextRequest) {
   })
 
   if (qNorm) {
-    items = items
-      .filter(
-        (it) =>
-          matchesArabicSearch(it.sku, qNorm) ||
-          matchesArabicSearch(it.internalId, qNorm) ||
-          matchesArabicSearch(it.nameAr, qNorm) ||
-          matchesArabicSearch(it.nameEn, qNorm) ||
-          matchesArabicSearch(it.model, qNorm) ||
-          matchesArabicSearch(it.size, qNorm) ||
-          matchesArabicSearch(it.color, qNorm) ||
-          matchesArabicSearch(it.descriptionAr, qNorm) ||
-          matchesArabicSearch(it.description, qNorm)
-      )
-      .slice(0, 40)
+    items = items.filter((it) => matchesArabicSearch(itemSearchBlob(it), qNorm)).slice(0, 40)
   }
 
   return NextResponse.json({ items })
