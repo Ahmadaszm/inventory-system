@@ -121,9 +121,6 @@ export function LinkBarcodePanel({
           autoFocus
           dir="rtl"
         />
-        <p className="text-[11px] text-slate-400 mt-1">
-          البحث يتجاهل الهمزات والتشكيل (مثال: احمد = أحمد، شنتة = شنته)
-        </p>
         {searching && <p className="text-xs text-slate-500 mt-1">جاري البحث...</p>}
         {searchResults.length > 0 && (
           <ul className="mt-2 max-h-48 overflow-y-auto border rounded-lg divide-y bg-slate-50">

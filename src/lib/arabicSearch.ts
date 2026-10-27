@@ -36,18 +36,51 @@ export function arabicSearchVariants(q: string): string[] {
     set.add(base.replace(/ى/g, "ي"))
   }
 
-  for (const token of norm.split(" ").filter((t) => t.length >= 2)) {
+  for (const token of norm.split(" ").filter((t) => t.length >= 1)) {
     set.add(token)
   }
 
-  return [...set].filter((s) => s.length >= 1).slice(0, 24)
+  return [...set].filter((s) => s.length >= 1).slice(0, 32)
 }
 
+/** Match if full query or ANY word appears in the field */
 export function matchesArabicSearch(
   haystack: string | null | undefined,
   queryNorm: string
 ): boolean {
   if (!queryNorm) return true
   if (!haystack) return false
-  return arabicNormalize(haystack).includes(queryNorm)
+  const h = arabicNormalize(haystack)
+  if (!h) return false
+  if (h.includes(queryNorm)) return true
+
+  const qWords = queryNorm.split(" ").filter((w) => w.length >= 1)
+  if (qWords.length === 0) return false
+  return qWords.some((w) => h.includes(w))
+}
+
+export function itemSearchBlob(it: {
+  sku?: string | null
+  internalId?: string | null
+  nameAr?: string | null
+  nameEn?: string | null
+  model?: string | null
+  size?: string | null
+  color?: string | null
+  descriptionAr?: string | null
+  description?: string | null
+}): string {
+  return [
+    it.sku,
+    it.internalId,
+    it.nameAr,
+    it.nameEn,
+    it.model,
+    it.size,
+    it.color,
+    it.descriptionAr,
+    it.description,
+  ]
+    .filter(Boolean)
+    .join(" ")
 }
