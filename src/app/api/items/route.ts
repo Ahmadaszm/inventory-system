@@ -7,25 +7,54 @@ export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
+  const { arabicNormalize, arabicSearchVariants, matchesArabicSearch } = await import(
+    "@/lib/arabicSearch"
+  )
+
   const q = (req.nextUrl.searchParams.get("q") || "").trim()
-  const items = await prisma.item.findMany({
+  const variants = q ? arabicSearchVariants(q) : []
+  const qNorm = arabicNormalize(q)
+
+  const orClause =
+    variants.length > 0
+      ? variants.flatMap((v) => [
+          { sku: { contains: v, mode: "insensitive" as const } },
+          { nameAr: { contains: v, mode: "insensitive" as const } },
+          { nameEn: { contains: v, mode: "insensitive" as const } },
+          { internalId: { contains: v, mode: "insensitive" as const } },
+          { model: { contains: v, mode: "insensitive" as const } },
+          { size: { contains: v, mode: "insensitive" as const } },
+          { color: { contains: v, mode: "insensitive" as const } },
+        ])
+      : undefined
+
+  let items = await prisma.item.findMany({
     where: {
       isActive: true,
-      ...(q
-        ? {
-            OR: [
-              { sku: { contains: q, mode: "insensitive" } },
-              { nameAr: { contains: q, mode: "insensitive" } },
-              { nameEn: { contains: q, mode: "insensitive" } },
-              { internalId: { contains: q, mode: "insensitive" } },
-            ],
-          }
-        : {}),
+      ...(orClause ? { OR: orClause } : {}),
     },
     include: { category: true, brand: true, _count: { select: { cartons: true } } },
     orderBy: { sku: "asc" },
-    take: q ? 30 : 500,
+    take: q ? 120 : 500,
   })
+
+  if (qNorm) {
+    items = items
+      .filter(
+        (it) =>
+          matchesArabicSearch(it.sku, qNorm) ||
+          matchesArabicSearch(it.internalId, qNorm) ||
+          matchesArabicSearch(it.nameAr, qNorm) ||
+          matchesArabicSearch(it.nameEn, qNorm) ||
+          matchesArabicSearch(it.model, qNorm) ||
+          matchesArabicSearch(it.size, qNorm) ||
+          matchesArabicSearch(it.color, qNorm) ||
+          matchesArabicSearch(it.descriptionAr, qNorm) ||
+          matchesArabicSearch(it.description, qNorm)
+      )
+      .slice(0, 40)
+  }
+
   return NextResponse.json({ items })
 }
 
@@ -35,7 +64,7 @@ export async function POST(req: NextRequest) {
     if (!session?.user) return NextResponse.json({ error: "يجب تسجيل الدخول" }, { status: 401 })
 
     const user = session.user as any
-    if (!hasPermission(user.role, "items:write") && !hasPermission(user.role, "*") ) {
+    if (!hasPermission(user.role, "items:write") && !hasPermission(user.role, "*")) {
       return NextResponse.json({ error: "ليس لديك صلاحية إضافة أصناف" }, { status: 403 })
     }
 
