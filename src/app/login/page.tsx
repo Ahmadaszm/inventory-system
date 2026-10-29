@@ -1,16 +1,27 @@
 "use client"
 
 import { signIn } from "next-auth/react"
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import Image from "next/image"
+import { startAuthentication } from "@simplewebauthn/browser"
 
 export default function LoginPage() {
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [error, setError] = useState("")
   const [loading, setLoading] = useState(false)
+  const [bioLoading, setBioLoading] = useState(false)
   const router = useRouter()
+
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem("zmzm_login_email")
+      if (saved) setEmail(saved)
+    } catch {
+      /* ignore */
+    }
+  }, [])
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -25,8 +36,63 @@ export default function LoginPage() {
     if (res?.error) {
       setError("اسم المستخدم أو كلمة المرور غير صحيحة")
     } else {
+      try {
+        localStorage.setItem("zmzm_login_email", email.trim())
+      } catch {
+        /* ignore */
+      }
       router.push("/dashboard")
       router.refresh()
+    }
+  }
+
+  async function handleBiometric() {
+    setError("")
+    setBioLoading(true)
+    try {
+      if (!window.PublicKeyCredential) {
+        setError("الجهاز لا يدعم البصمة")
+        return
+      }
+      const optRes = await fetch("/api/webauthn/login-options", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: email.trim() || undefined }),
+      })
+      const options = await optRes.json()
+      if (!optRes.ok) throw new Error(options.error || "تعذر بدء التحقق بالبصمة")
+
+      const authResp = await startAuthentication({ optionsJSON: options })
+      const verRes = await fetch("/api/webauthn/login-verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(authResp),
+      })
+      const data = await verRes.json()
+      if (!verRes.ok) throw new Error(data.error || "فشل التحقق من البصمة")
+
+      const res = await signIn("credentials", {
+        biometricToken: data.token,
+        redirect: false,
+      })
+      if (res?.error) throw new Error("تعذر إنشاء الجلسة")
+      if (data.email) {
+        try {
+          localStorage.setItem("zmzm_login_email", data.email)
+        } catch {
+          /* ignore */
+        }
+      }
+      router.push("/dashboard")
+      router.refresh()
+    } catch (e: any) {
+      if (e?.name === "NotAllowedError") {
+        setError("تم إلغاء البصمة")
+      } else {
+        setError(e?.message || "فشل الدخول بالبصمة")
+      }
+    } finally {
+      setBioLoading(false)
     }
   }
 
@@ -89,7 +155,6 @@ export default function LoginPage() {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   className="w-full border border-slate-300 rounded-xl px-4 py-3 focus:ring-2 focus:ring-[#9B1B1E]/40 focus:border-[#9B1B1E] outline-none transition"
-                  required
                   dir="ltr"
                   autoComplete="current-password"
                 />
@@ -107,6 +172,28 @@ export default function LoginPage() {
                 {loading ? "جاري الدخول..." : "دخول"}
               </button>
             </form>
+
+            <div className="relative my-5">
+              <div className="absolute inset-0 flex items-center">
+                <div className="w-full border-t border-slate-200" />
+              </div>
+              <div className="relative flex justify-center text-xs">
+                <span className="bg-white px-2 text-slate-400">أو</span>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={handleBiometric}
+              disabled={bioLoading}
+              className="w-full border-2 border-slate-200 hover:border-[#9B1B1E] hover:bg-red-50 text-slate-800 font-semibold py-3.5 rounded-xl transition disabled:opacity-50 flex items-center justify-center gap-2"
+            >
+              <span className="text-xl">👆</span>
+              {bioLoading ? "انتظر البصمة..." : "دخول ببصمة الجهاز"}
+            </button>
+            <p className="text-[11px] text-slate-400 text-center mt-2">
+              فعّل البصمة مرة من لوحة التحكم بعد الدخول بكلمة المرور
+            </p>
           </div>
 
           <p className="text-center text-xs text-slate-400 mt-6">
