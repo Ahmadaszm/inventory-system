@@ -18,8 +18,29 @@ export const authOptions: NextAuthOptions = {
       credentials: {
         email: { label: "Email", type: "email" },
         password: { label: "Password", type: "password" },
+        biometricToken: { label: "Biometric", type: "text" },
       },
       async authorize(credentials) {
+        if (credentials?.biometricToken) {
+          const row = await prisma.webAuthnChallenge.findUnique({
+            where: { id: `login:${credentials.biometricToken}` },
+          })
+          if (!row || row.type !== "login_token" || row.expiresAt < new Date() || !row.userId) {
+            return null
+          }
+          await prisma.webAuthnChallenge.delete({ where: { id: row.id } }).catch(() => {})
+          const user = await prisma.user.findUnique({ where: { id: row.userId } })
+          if (!user || !user.isActive) return null
+          return {
+            id: user.id,
+            email: user.email,
+            name: user.name,
+            nameAr: user.nameAr,
+            role: user.role,
+            locale: user.locale,
+          }
+        }
+
         if (!credentials?.email || !credentials?.password) return null
 
         const user = await prisma.user.findUnique({
