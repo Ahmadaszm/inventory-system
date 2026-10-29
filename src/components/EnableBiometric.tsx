@@ -50,7 +50,7 @@ export function EnableBiometricButton() {
         type="button"
         onClick={enable}
         disabled={loading}
-        className="w-full sm:w-auto min-h-[44px] px-5 rounded-xl bg-slate-800 text-white text-sm font-medium disabled:opacity-50"
+        className="w-full sm:w-auto min-h-[48px] px-6 rounded-xl bg-[#9B1B1E] text-white text-sm font-bold disabled:opacity-50"
       >
         {loading ? "جاري التفعيل..." : "تفعيل الدخول ببصمة الجهاز"}
       </button>

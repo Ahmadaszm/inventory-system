@@ -1,3 +1,4 @@
+import { EnableBiometricButton } from "@/components/EnableBiometric"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth/options"
 import { redirect } from "next/navigation"
@@ -51,42 +52,32 @@ export default async function DashboardPage() {
   }
 
   return (
-    <main className="p-6 max-w-7xl mx-auto">
-      <div className="mb-6">
+    <main className="p-6 max-w-7xl mx-auto space-y-6">
+      <div>
         <h1 className="text-2xl font-bold text-slate-800">
           {isAr ? "لوحة التحكم" : "Dashboard"}
         </h1>
         <p className="text-slate-500">
-          {isAr
-            ? `مرحباً ${user.nameAr || user.name}`
-            : `Welcome ${user.name}`}
+          {isAr ? `مرحباً ${user.nameAr || user.name}` : `Welcome ${user.name}`}
         </p>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-        <StatCard
-          title={isAr ? "الأصناف النشطة" : "Active SKUs"}
-          value={itemCount}
-          color="blue"
-        />
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <StatCard title={isAr ? "الأصناف النشطة" : "Active SKUs"} value={itemCount} color="blue" />
         <StatCard
           title={isAr ? "الكراتين / الوحدات" : "Cartons / Units"}
           value={cartonCount}
           color="blue"
         />
+        <StatCard title={isAr ? "إجمالي الكمية" : "Total Qty"} value={totalQty} color="blue" />
         <StatCard
-          title={isAr ? "إجمالي الكمية" : "Total Quantity"}
-          value={totalQty}
-          color="blue"
-        />
-        <StatCard
-          title={isAr ? "عمليات جرد مفتوحة" : "Open Stocktakes"}
+          title={isAr ? "جلسات مفتوحة" : "Open Sessions"}
           value={openSessions}
           color="amber"
         />
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard
           title={isAr ? "مخزون المصنع" : "Factory Stock"}
           value={factoryQty}
@@ -105,21 +96,30 @@ export default async function DashboardPage() {
       </div>
 
       <div className="bg-white rounded-xl shadow-sm border p-6">
-        <h2 className="text-lg font-semibold mb-4">
-          {isAr ? "إجراءات سريعة" : "Quick Actions"}
-        </h2>
+        <h2 className="text-lg font-semibold mb-4">{isAr ? "إجراءات سريعة" : "Quick Actions"}</h2>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           <ActionLink href="/scan" label={isAr ? "مسح QR" : "Scan QR"} />
-          <ActionLink
-            href="/stocktake/new"
-            label={isAr ? "جرد جديد" : "New Stocktake"}
-          />
+          <ActionLink href="/stocktake/new" label={isAr ? "جرد جديد" : "New Stocktake"} />
           <ActionLink href="/items" label={isAr ? "الأصناف" : "Items"} />
+          <ActionLink href="/backup" label={isAr ? "نسخة احتياطية" : "Backup"} />
+          <ActionLink href="/stocktake" label={isAr ? "عمليات الجرد" : "Stocktakes"} />
           <ActionLink
-            href="/stocktake"
-            label={isAr ? "عمليات الجرد" : "Stocktakes"}
+            href="/settings/security"
+            label={isAr ? "تفعيل البصمة" : "Enable Fingerprint"}
           />
         </div>
+      </div>
+
+      <div className="bg-white rounded-xl border border-[#9B1B1E]/30 p-6 shadow-sm">
+        <h2 className="text-lg font-bold text-[#9B1B1E] mb-1">
+          {isAr ? "👆 تفعيل الدخول بالبصمة" : "Enable biometric login"}
+        </h2>
+        <p className="text-sm text-slate-600 mb-4">
+          {isAr
+            ? "فعّل بصمة الإصبع أو Face ID على هذا الجهاز لتسجيل الدخول بدون كلمة مرور في المرات القادمة."
+            : "Register fingerprint or Face ID on this device for passwordless login next time."}
+        </p>
+        <EnableBiometricButton />
       </div>
     </main>
   )
