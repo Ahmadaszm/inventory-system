@@ -36,6 +36,7 @@ model User {
   approvedAdjustments   StockAdjustment[]   @relation("AdjustmentApprovedBy")
   auditLogs             AuditLog[]
   scanEvents            ScanEvent[]
+  webauthnCredentials   WebAuthnCredential[]
 
   @@index([role])
   @@index([isActive])
@@ -480,4 +481,29 @@ model ScanEvent {
   @@index([clientEventId])
   @@index([sessionId])
   @@index([scannedAt])
+}
+
+model WebAuthnCredential {
+  id           String   @id @default(cuid())
+  userId       String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  credentialId String   @unique
+  publicKey    String
+  counter      Int      @default(0)
+  deviceType   String?
+  backedUp     Boolean  @default(false)
+  transports   String?
+  createdAt    DateTime @default(now())
+
+  @@index([userId])
+}
+
+model WebAuthnChallenge {
+  id        String   @id
+  userId    String?
+  type      String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([expiresAt])
 }
