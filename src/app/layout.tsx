@@ -15,6 +15,9 @@ export const metadata: Metadata = {
     icon: "/logo.svg",
     apple: "/logo.svg",
   },
+  formatDetection: {
+    telephone: false,
+  },
 }
 
 export const viewport: Viewport = {
@@ -22,6 +25,8 @@ export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   maximumScale: 1,
+  userScalable: false,
+  viewportFit: "cover",
 }
 
 export default function RootLayout({
@@ -31,7 +36,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="ar" dir="rtl">
-      <body className="antialiased bg-slate-50 text-slate-900">
+      <body className="antialiased bg-slate-50 text-slate-900 min-h-dvh">
         <Providers>{children}</Providers>
       </body>
     </html>
