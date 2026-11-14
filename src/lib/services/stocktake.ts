@@ -2,16 +2,61 @@ import prisma from "@/lib/prisma"
 import { resolveBarcode, normalizeBarcode } from "@/lib/services/resolveBarcode"
 import { generateSessionNumber } from "@/lib/utils"
 
-/** Append a structured scan line so the UI can show each count step */
-function appendScanLine(prevNotes: string | null | undefined, qty: number, mode: "add" | "replace") {
-  const line = `SCAN|${mode === "replace" ? "=" : "+"}${qty}|${new Date().toISOString()}`
-  if (mode === "replace") return line
+/** Append a structured scan line: SCAN|+qty|UNIT|ISO  (UNIT = PCS|KG) */
+function appendScanLine(
+  prevNotes: string | null | undefined,
+  qty: number,
+  mode: "add" | "replace",
+  unit: "PCS" | "KG" = "PCS"
+) {
+  const u = unit === "KG" ? "KG" : "PCS"
+  const line = `SCAN|${mode === "replace" ? "=" : "+"}${qty}|${u}|${new Date().toISOString()}`
+  const other = (prevNotes || "")
+    .split("\n")
+    .map((l) => l.trim())
+    .filter((l) => l && !l.startsWith("SCAN|"))
+  if (mode === "replace") {
+    return [...other, line].join("\n")
+  }
   const scans = (prevNotes || "")
     .split("\n")
     .map((l) => l.trim())
     .filter((l) => l.startsWith("SCAN|"))
   scans.push(line)
-  return scans.slice(-50).join("\n")
+  return [...other, ...scans.slice(-50)].join("\n")
+}
+
+export function parseUnitFromNotes(notes?: string | null): "PCS" | "KG" {
+  if (!notes) return "PCS"
+  if (/وحدة:\s*كجم|\bKG\b/i.test(notes)) return "KG"
+  return "PCS"
+}
+
+/** Sum quantities by unit from SCAN lines (for mixed PCS/KG) */
+function totalsFromNotes(notes: string | null | undefined, fallbackQty: number) {
+  const lines = (notes || "")
+    .split("\n")
+    .map((l) => l.trim())
+    .filter((l) => l.startsWith("SCAN|"))
+  if (lines.length === 0) return { pcs: fallbackQty, kg: 0, primary: fallbackQty }
+  let pcs = 0
+  let kg = 0
+  for (const l of lines) {
+    const parts = l.split("|")
+    const flag = parts[1] || "+0"
+    const qty = Math.abs(parseFloat(flag.replace(/^[+=]/, "")) || 0)
+    const isReplace = flag.startsWith("=")
+    const u = parts[2] === "KG" ? "KG" : "PCS"
+    if (isReplace) {
+      if (u === "KG") kg = qty
+      else pcs = qty
+    } else {
+      if (u === "KG") kg += qty
+      else pcs += qty
+    }
+  }
+  const primary = pcs > 0 ? pcs : kg
+  return { pcs, kg, primary }
 }
 
 export async function createStocktakeSession(params: {
@@ -101,8 +146,11 @@ export async function recordCount(params: {
   isDamaged?: boolean
   deviceInfo?: string
   mode?: "add" | "replace"
+  unit?: "PCS" | "KG"
 }) {
   const mode = params.mode === "replace" ? "replace" : "add"
+  const unit: "PCS" | "KG" =
+    params.unit === "KG" || parseUnitFromNotes(params.notes) === "KG" ? "KG" : "PCS"
 
   if (params.clientEventId) {
     const existing = await prisma.countRecord.findFirst({
@@ -148,13 +196,15 @@ export async function recordCount(params: {
     })
 
     if (existingUnknown) {
+      const newNotes = appendScanLine(existingUnknown.notes, params.countedQty, mode, unit)
+      const totals = totalsFromNotes(newNotes, params.countedQty)
       const prev = Number(existingUnknown.countedQty)
-      const nextQty = mode === "replace" ? params.countedQty : prev + params.countedQty
+      const nextQty = totals.primary
       const record = await prisma.countRecord.update({
         where: { id: existingUnknown.id },
         data: {
           countedQty: nextQty,
-          notes: appendScanLine(existingUnknown.notes, params.countedQty, mode),
+          notes: newNotes,
           countedAt: new Date(),
           isDuplicate: false,
         },
@@ -166,6 +216,9 @@ export async function recordCount(params: {
         previousQty: prev,
         addedQty: mode === "replace" ? null : params.countedQty,
         totalQty: nextQty,
+        unit,
+        qtyPcs: totals.pcs,
+        qtyKg: totals.kg,
       }
     }
 
@@ -177,7 +230,7 @@ export async function recordCount(params: {
         status: "COUNTED",
         isUnknownQr: !carton,
         isUnexpected: true,
-        notes: appendScanLine(null, params.countedQty, "add"),
+        notes: appendScanLine(null, params.countedQty, "add", unit),
         countedBy: { connect: { id: params.countedById } },
         clientEventId: params.clientEventId,
         ...(params.taskId ? { task: { connect: { id: params.taskId } } } : {}),
@@ -195,7 +248,7 @@ export async function recordCount(params: {
       })
       .catch(() => {})
 
-    return { status: carton ? "INACTIVE" : "UNKNOWN_COUNTED", record }
+    return { status: carton ? "INACTIVE" : "UNKNOWN_COUNTED", record, unit }
   }
 
   const existingCount = await prisma.countRecord.findUnique({
@@ -209,8 +262,10 @@ export async function recordCount(params: {
   })
 
   if (existingCount) {
+    const newNotes = appendScanLine(existingCount.notes, params.countedQty, mode, unit)
+    const totals = totalsFromNotes(newNotes, params.countedQty)
     const prev = Number(existingCount.countedQty)
-    const nextQty = mode === "replace" ? params.countedQty : prev + params.countedQty
+    const nextQty = totals.primary
     let bookQty = existingCount.bookQty != null ? Number(existingCount.bookQty) : null
     const variance = bookQty !== null ? nextQty - bookQty : null
     const record = await prisma.countRecord.update({
@@ -220,7 +275,7 @@ export async function recordCount(params: {
         varianceQty: variance,
         status: variance !== null && variance !== 0 ? "DISCREPANCY" : "COUNTED",
         isDuplicate: false,
-        notes: appendScanLine(existingCount.notes, params.countedQty, mode),
+        notes: newNotes,
         countedAt: new Date(),
       },
       include: { item: true, carton: true, batch: true, location: true },
@@ -231,6 +286,9 @@ export async function recordCount(params: {
       previousQty: prev,
       addedQty: mode === "replace" ? null : params.countedQty,
       totalQty: nextQty,
+      unit,
+      qtyPcs: totals.pcs,
+      qtyKg: totals.kg,
     }
   }
 
@@ -264,7 +322,7 @@ export async function recordCount(params: {
       status: variance !== null && variance !== 0 ? "DISCREPANCY" : "COUNTED",
       isPartial: Number(carton.quantity) !== params.countedQty,
       isDamaged: params.isDamaged || false,
-      notes: appendScanLine(null, params.countedQty, "add"),
+      notes: appendScanLine(null, params.countedQty, "add", unit),
       countedById: params.countedById,
       clientEventId: params.clientEventId,
     },
@@ -279,7 +337,7 @@ export async function recordCount(params: {
     },
   })
 
-  return { status: "COUNTED", record }
+  return { status: "COUNTED", record, unit }
 }
 
 export async function runReconciliation(sessionId: string) {
