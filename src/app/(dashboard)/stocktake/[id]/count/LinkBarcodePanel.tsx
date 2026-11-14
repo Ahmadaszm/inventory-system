@@ -1,5 +1,6 @@
 "use client"
 
+import { VoiceSearchButton } from "@/components/VoiceSearchButton"
 import { useEffect, useRef, useState } from "react"
 
 export function LinkBarcodePanel({
@@ -103,7 +104,7 @@ export function LinkBarcodePanel({
             {barcode}
           </p>
           <p className="text-xs text-slate-500 mt-1">
-            ابحث بأي جزء من الاسم أو الرقم — لا يلزم كتابة الاسم كاملاً
+            ابحث بأي جزء من الاسم أو الرقم — أو استخدم الميكروفون
           </p>
         </div>
         <button type="button" onClick={onClose} className="text-slate-500 text-sm hover:text-slate-800">
@@ -112,15 +113,18 @@ export function LinkBarcodePanel({
       </div>
 
       <div>
-        <label className="block text-sm font-medium mb-1">بحث عن صنف موجود</label>
-        <input
-          value={searchQ}
-          onChange={(e) => onSearchChange(e.target.value)}
-          placeholder="مثال: 131 أو ماركس أو شنتة..."
-          className="w-full border-2 border-slate-300 rounded-lg px-3 py-3 text-base focus:border-[#9B1B1E] outline-none"
-          autoFocus
-          dir="rtl"
-        />
+        <label className="block text-sm font-medium mb-1">بحث عن صنف موجود (كتابة أو صوت)</label>
+        <div className="flex items-start gap-2">
+          <input
+            value={searchQ}
+            onChange={(e) => onSearchChange(e.target.value)}
+            placeholder="اكتب أو اضغط الميكروفون وتحدث..."
+            className="flex-1 border-2 border-slate-300 rounded-lg px-3 py-3 text-base focus:border-[#9B1B1E] outline-none"
+            autoFocus
+            dir="rtl"
+          />
+          <VoiceSearchButton onResult={(text) => onSearchChange(text)} lang="ar-SA" />
+        </div>
         {searching && <p className="text-xs text-slate-500 mt-1">جاري البحث...</p>}
         {searchResults.length > 0 && (
           <ul className="mt-2 max-h-56 overflow-y-auto border rounded-lg divide-y bg-slate-50 scroll-touch">
