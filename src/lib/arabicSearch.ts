@@ -17,6 +17,16 @@ export function arabicNormalize(input: string): string {
     .trim()
 }
 
+/** Split query into tokens; also split letters glued to numbers (e.g. 131ماركس) */
+export function searchTokens(q: string): string[] {
+  const norm = arabicNormalize(q)
+  if (!norm) return []
+  const spaced = norm
+    .replace(/(\d+)(\p{L})/gu, "$1 $2")
+    .replace(/(\p{L})(\d+)/gu, "$1 $2")
+  return spaced.split(" ").filter((t) => t.length >= 1)
+}
+
 export function arabicSearchVariants(q: string): string[] {
   const raw = String(q || "").trim()
   if (!raw) return []
@@ -36,14 +46,13 @@ export function arabicSearchVariants(q: string): string[] {
     set.add(base.replace(/ى/g, "ي"))
   }
 
-  for (const token of norm.split(" ").filter((t) => t.length >= 1)) {
+  for (const token of searchTokens(q)) {
     set.add(token)
   }
 
-  return [...set].filter((s) => s.length >= 1).slice(0, 32)
+  return [...set].filter((s) => s.length >= 1).slice(0, 40)
 }
 
-/** Match if full query or ANY word appears in the field */
 export function matchesArabicSearch(
   haystack: string | null | undefined,
   queryNorm: string
@@ -54,9 +63,29 @@ export function matchesArabicSearch(
   if (!h) return false
   if (h.includes(queryNorm)) return true
 
-  const qWords = queryNorm.split(" ").filter((w) => w.length >= 1)
+  const qWords = searchTokens(queryNorm)
   if (qWords.length === 0) return false
   return qWords.some((w) => h.includes(w))
+}
+
+export function scoreArabicSearch(
+  haystack: string | null | undefined,
+  query: string
+): number {
+  if (!haystack || !query) return 0
+  const h = arabicNormalize(haystack)
+  const tokens = searchTokens(query)
+  if (!h || tokens.length === 0) return 0
+  let score = 0
+  for (const t of tokens) {
+    if (h.includes(t)) {
+      score += 10
+      if (h.startsWith(t) || h.includes(" " + t)) score += 5
+    }
+  }
+  const full = arabicNormalize(query)
+  if (full && h.includes(full)) score += 20
+  return score
 }
 
 export function itemSearchBlob(it: {
