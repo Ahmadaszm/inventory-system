@@ -3,22 +3,59 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth/options"
 import prisma from "@/lib/prisma"
 
-function parseScanLines(notes: string | null | undefined, fallbackQty: number, fallbackAt: Date) {
+type Step = {
+  qty: number
+  at: Date
+  mode: "add" | "replace"
+  unit: "PCS" | "KG"
+}
+
+/** SCAN|+qty|UNIT|ISO  or legacy SCAN|+qty|ISO */
+function parseScanLines(
+  notes: string | null | undefined,
+  fallbackQty: number,
+  fallbackAt: Date
+): Step[] {
   const lines = (notes || "")
     .split("\n")
     .map((l) => l.trim())
     .filter((l) => l.startsWith("SCAN|"))
   if (lines.length === 0) {
-    return [{ qty: fallbackQty, at: fallbackAt, mode: "add" as const }]
+    const unit: "PCS" | "KG" =
+      notes && /وحدة:\s*كجم|\bKG\b/i.test(notes) ? "KG" : "PCS"
+    return [{ qty: fallbackQty, at: fallbackAt, mode: "add", unit }]
   }
   return lines.map((l) => {
     const parts = l.split("|")
     const flag = parts[1] || "+0"
     const mode = flag.startsWith("=") ? ("replace" as const) : ("add" as const)
     const qty = Math.abs(parseFloat(flag.replace(/^[+=]/, "")) || 0)
-    const at = parts[2] ? new Date(parts[2]) : fallbackAt
-    return { qty, at, mode }
+    let unit: "PCS" | "KG" = "PCS"
+    let at = fallbackAt
+    if (parts[2] === "PCS" || parts[2] === "KG") {
+      unit = parts[2] as "PCS" | "KG"
+      at = parts[3] ? new Date(parts[3]) : fallbackAt
+    } else if (parts[2]) {
+      at = new Date(parts[2])
+      unit = "PCS"
+    }
+    return { qty, at, mode, unit }
   })
+}
+
+function totalsByUnit(steps: Step[]) {
+  let pcs = 0
+  let kg = 0
+  for (const s of steps) {
+    if (s.mode === "replace") {
+      if (s.unit === "KG") kg = s.qty
+      else pcs = s.qty
+    } else {
+      if (s.unit === "KG") kg += s.qty
+      else pcs += s.qty
+    }
+  }
+  return { pcs, kg }
 }
 
 export async function GET(
@@ -33,7 +70,7 @@ export async function GET(
   const records = await prisma.countRecord.findMany({
     where: { sessionId: id },
     include: {
-      item: { select: { id: true, sku: true, nameAr: true, nameEn: true } },
+      item: { select: { id: true, sku: true, nameAr: true, nameEn: true, uom: true } },
       countedBy: { select: { id: true, name: true, nameAr: true } },
     },
     orderBy: { countedAt: "desc" },
@@ -45,16 +82,23 @@ export async function GET(
 
   for (const r of records) {
     const steps = parseScanLines(r.notes, Number(r.countedQty), r.countedAt)
-    const total = Number(r.countedQty)
+    const { pcs, kg } = totalsByUnit(steps)
     const nameAr = r.item?.nameAr || r.item?.nameEn || ""
     const sku = r.item?.sku || ""
     const qr = r.qrCodeScanned || ""
     const countedBy = r.countedBy?.nameAr || r.countedBy?.name || ""
 
+    let displayTotal: number | string = Number(r.countedQty)
+    if (pcs > 0 && kg > 0) displayTotal = `${pcs} قطعة + ${kg} كجم`
+    else if (kg > 0 && pcs === 0) displayTotal = kg
+    else displayTotal = pcs || Number(r.countedQty)
+
     aggregated.push({
       recordId: r.id,
       qr,
-      qty: total,
+      qty: displayTotal,
+      qtyPcs: pcs,
+      qtyKg: kg,
       sku,
       nameAr,
       isUnknown: !!r.isUnknownQr || !r.itemId,
@@ -70,6 +114,7 @@ export async function GET(
         recordId: r.id,
         qr,
         qty: s.qty,
+        unit: s.unit,
         mode: s.mode,
         time: s.at.toISOString(),
         countedAt: s.at.toISOString(),
@@ -77,7 +122,9 @@ export async function GET(
         nameAr,
         isUnknown: !!r.isUnknownQr || !r.itemId,
         countedBy,
-        totalForItem: total,
+        totalForItem: displayTotal,
+        qtyPcs: pcs,
+        qtyKg: kg,
       })
     })
   }
