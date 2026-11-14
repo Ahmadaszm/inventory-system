@@ -5,6 +5,7 @@ import { useSession } from "next-auth/react"
 import { useRouter, useParams } from "next/navigation"
 import Link from "next/link"
 import { LinkBarcodePanel } from "./LinkBarcodePanel"
+import { VoiceSearchButton } from "@/components/VoiceSearchButton"
 
 function uuid() {
   return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
@@ -360,15 +361,18 @@ export default function CountPage() {
 
           <div className="border border-slate-200 rounded-xl p-3 bg-slate-50">
             <label className="block text-xs font-semibold text-slate-600 mb-1.5">
-              بحث عن صنف (حرف أو رقم)
+              بحث عن صنف (حرف أو رقم أو صوت)
             </label>
-            <input
-              value={itemSearchQ}
-              onChange={(e) => onItemSearch(e.target.value)}
-              placeholder="مثال: 131 أو ماركس أو شنتة..."
-              className="w-full border-2 border-slate-300 rounded-xl px-3 py-2.5 text-base focus:border-[#9B1B1E] outline-none"
-              dir="rtl"
-            />
+            <div className="flex items-start gap-2">
+              <input
+                value={itemSearchQ}
+                onChange={(e) => onItemSearch(e.target.value)}
+                placeholder="اكتب أو اضغط الميكروفون وتحدث..."
+                className="flex-1 border-2 border-slate-300 rounded-xl px-3 py-2.5 text-base focus:border-[#9B1B1E] outline-none"
+                dir="rtl"
+              />
+              <VoiceSearchButton onResult={(text) => onItemSearch(text)} lang="ar-SA" />
+            </div>
             {itemSearching && <p className="text-xs text-slate-500 mt-1">جاري البحث...</p>}
             {itemSearchResults.length > 0 && (
               <ul className="mt-2 max-h-40 overflow-y-auto border rounded-xl divide-y bg-white">
