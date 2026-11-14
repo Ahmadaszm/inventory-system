@@ -45,7 +45,7 @@ export function LinkBarcodePanel({
       } finally {
         setSearching(false)
       }
-    }, 250)
+    }, 200)
   }
 
   async function linkToItem(itemId: string) {
@@ -103,7 +103,7 @@ export function LinkBarcodePanel({
             {barcode}
           </p>
           <p className="text-xs text-slate-500 mt-1">
-            ابحث عن صنف لربط الباركود به، أو أضف اسماً جديداً يدوياً
+            ابحث بأي جزء من الاسم أو الرقم — لا يلزم كتابة الاسم كاملاً
           </p>
         </div>
         <button type="button" onClick={onClose} className="text-slate-500 text-sm hover:text-slate-800">
@@ -116,25 +116,26 @@ export function LinkBarcodePanel({
         <input
           value={searchQ}
           onChange={(e) => onSearchChange(e.target.value)}
-          placeholder="اكتب الاسم أو رقم الصنف..."
-          className="w-full border rounded-lg px-3 py-2.5 text-base"
+          placeholder="مثال: 131 أو ماركس أو شنتة..."
+          className="w-full border-2 border-slate-300 rounded-lg px-3 py-3 text-base focus:border-[#9B1B1E] outline-none"
           autoFocus
           dir="rtl"
         />
         {searching && <p className="text-xs text-slate-500 mt-1">جاري البحث...</p>}
         {searchResults.length > 0 && (
-          <ul className="mt-2 max-h-48 overflow-y-auto border rounded-lg divide-y bg-slate-50">
+          <ul className="mt-2 max-h-56 overflow-y-auto border rounded-lg divide-y bg-slate-50 scroll-touch">
             {searchResults.map((it) => (
               <li key={it.id}>
                 <button
                   type="button"
                   disabled={linkLoading}
                   onClick={() => linkToItem(it.id)}
-                  className="w-full text-right px-3 py-2.5 hover:bg-emerald-50 text-sm"
+                  className="w-full text-right px-3 py-3 hover:bg-emerald-50 active:bg-emerald-100 text-sm min-h-[48px]"
                 >
-                  <span className="font-medium">{it.nameAr || it.nameEn}</span>
-                  <span className="text-slate-500 mr-2 font-mono text-xs" dir="ltr">
+                  <span className="font-medium block">{it.nameAr || it.nameEn}</span>
+                  <span className="text-slate-500 font-mono text-xs" dir="ltr">
                     {it.sku}
+                    {it.uom ? ` · ${it.uom}` : ""}
                   </span>
                 </button>
               </li>
@@ -142,7 +143,7 @@ export function LinkBarcodePanel({
           </ul>
         )}
         {!searching && searchQ.trim() && searchResults.length === 0 && (
-          <p className="text-xs text-amber-700 mt-1">لا نتائج — جرّب كلمات أقل أو أضف صنفاً جديداً</p>
+          <p className="text-xs text-amber-700 mt-1">لا نتائج — جرّب كلمة واحدة أو رقم فقط</p>
         )}
       </div>
 
@@ -152,20 +153,20 @@ export function LinkBarcodePanel({
           value={newNameAr}
           onChange={(e) => setNewNameAr(e.target.value)}
           placeholder="اسم الصنف *"
-          className="w-full border rounded-lg px-3 py-2.5"
+          className="w-full border rounded-lg px-3 py-3"
         />
         <input
           value={newSku}
           onChange={(e) => setNewSku(e.target.value)}
           placeholder="رقم الصنف (اختياري)"
-          className="w-full border rounded-lg px-3 py-2.5"
+          className="w-full border rounded-lg px-3 py-3"
           dir="ltr"
         />
         <button
           type="button"
           onClick={createAndLink}
           disabled={linkLoading}
-          className="w-full min-h-[44px] rounded-xl bg-teal-500 hover:bg-teal-600 text-white font-bold disabled:opacity-50"
+          className="w-full min-h-[48px] rounded-xl bg-teal-500 hover:bg-teal-600 text-white font-bold disabled:opacity-50"
         >
           {linkLoading ? "جاري..." : "حفظ الصنف وربط الباركود"}
         </button>

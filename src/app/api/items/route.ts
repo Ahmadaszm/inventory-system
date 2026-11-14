@@ -12,6 +12,7 @@ export async function GET(req: NextRequest) {
     arabicSearchVariants,
     matchesArabicSearch,
     itemSearchBlob,
+    scoreArabicSearch,
   } = await import("@/lib/arabicSearch")
 
   const q = (req.nextUrl.searchParams.get("q") || "").trim()
@@ -38,11 +39,28 @@ export async function GET(req: NextRequest) {
     },
     include: { category: true, brand: true, _count: { select: { cartons: true } } },
     orderBy: { sku: "asc" },
-    take: q ? 120 : 500,
+    take: q ? 200 : 500,
   })
 
+  if (q && items.length === 0) {
+    items = await prisma.item.findMany({
+      where: { isActive: true },
+      include: { category: true, brand: true, _count: { select: { cartons: true } } },
+      orderBy: { sku: "asc" },
+      take: 800,
+    })
+  }
+
   if (qNorm) {
-    items = items.filter((it) => matchesArabicSearch(itemSearchBlob(it), qNorm)).slice(0, 40)
+    items = items
+      .map((it) => ({
+        it,
+        score: scoreArabicSearch(itemSearchBlob(it), q),
+      }))
+      .filter(({ score, it }) => score > 0 || matchesArabicSearch(itemSearchBlob(it), qNorm))
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 40)
+      .map(({ it }) => it)
   }
 
   return NextResponse.json({ items })
