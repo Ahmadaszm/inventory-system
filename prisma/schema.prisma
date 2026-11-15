@@ -507,3 +507,12 @@ model WebAuthnChallenge {
 
   @@index([expiresAt])
 }
+
+/// Key-value app settings (e.g. role_permissions JSON matrix)
+model AppSetting {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  value     String
+  updatedAt DateTime @updatedAt
+  updatedBy String?
+}
