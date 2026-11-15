@@ -10,54 +10,62 @@ export async function GET(req: NextRequest) {
   const {
     arabicNormalize,
     arabicSearchVariants,
-    itemSearchBlob,
-    scoreArabicSearch,
+    searchTokens,
+    scoreItemSearch,
   } = await import("@/lib/arabicSearch")
 
   const q = (req.nextUrl.searchParams.get("q") || "").trim()
   const variants = q ? arabicSearchVariants(q) : []
   const qNorm = arabicNormalize(q)
+  const tokens = q ? searchTokens(q) : []
 
-  const orClause =
-    variants.length > 0
-      ? variants.flatMap((v) => [
-          { sku: { contains: v, mode: "insensitive" as const } },
-          { nameAr: { contains: v, mode: "insensitive" as const } },
-          { nameEn: { contains: v, mode: "insensitive" as const } },
-          { internalId: { contains: v, mode: "insensitive" as const } },
-          { model: { contains: v, mode: "insensitive" as const } },
-          { size: { contains: v, mode: "insensitive" as const } },
-          { color: { contains: v, mode: "insensitive" as const } },
-        ])
-      : undefined
+  // Build field OR helper for a single token/variant
+  const fieldContains = (v: string) => [
+    { sku: { contains: v, mode: "insensitive" as const } },
+    { nameAr: { contains: v, mode: "insensitive" as const } },
+    { nameEn: { contains: v, mode: "insensitive" as const } },
+    { internalId: { contains: v, mode: "insensitive" as const } },
+    { model: { contains: v, mode: "insensitive" as const } },
+    { size: { contains: v, mode: "insensitive" as const } },
+    { color: { contains: v, mode: "insensitive" as const } },
+  ]
+
+  // Multi-token: require each token (or a short synonym set) via AND of ORs
+  // so DB already narrows to candidates that can satisfy AND logic.
+  let whereExtra: Record<string, unknown> = {}
+  if (tokens.length >= 2) {
+    const andParts = tokens.slice(0, 5).map((t) => {
+      const vars = arabicSearchVariants(t).slice(0, 8)
+      return { OR: vars.flatMap((v) => fieldContains(v)) }
+    })
+    whereExtra = { AND: andParts }
+  } else if (variants.length > 0) {
+    whereExtra = { OR: variants.flatMap((v) => fieldContains(v)) }
+  }
 
   let items = await prisma.item.findMany({
     where: {
       isActive: true,
-      ...(orClause ? { OR: orClause } : {}),
+      ...whereExtra,
     },
     include: { category: true, brand: true, _count: { select: { cartons: true } } },
     orderBy: { sku: "asc" },
-    take: q ? 200 : 500,
+    take: q ? 250 : 500,
   })
 
-  // Fallback: if Prisma OR returned nothing, load a broader set for client filter
+  // Fallback: broader load then in-memory filter (covers synonym / normalize edge cases)
   if (q && items.length === 0) {
     items = await prisma.item.findMany({
       where: { isActive: true },
       include: { category: true, brand: true, _count: { select: { cartons: true } } },
       orderBy: { sku: "asc" },
-      take: 800,
+      take: 900,
     })
   }
 
   if (qNorm) {
-    // Strict AND: every query token must match (score is 0 otherwise)
     items = items
-      .map((it) => ({
-        it,
-        score: scoreArabicSearch(itemSearchBlob(it), q),
-      }))
+      .map((it) => ({ it, score: scoreItemSearch(it, q) }))
       .filter(({ score }) => score > 0)
       .sort((a, b) => b.score - a.score)
       .slice(0, 40)
