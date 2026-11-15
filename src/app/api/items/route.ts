@@ -10,7 +10,6 @@ export async function GET(req: NextRequest) {
   const {
     arabicNormalize,
     arabicSearchVariants,
-    matchesArabicSearch,
     itemSearchBlob,
     scoreArabicSearch,
   } = await import("@/lib/arabicSearch")
@@ -42,6 +41,7 @@ export async function GET(req: NextRequest) {
     take: q ? 200 : 500,
   })
 
+  // Fallback: if Prisma OR returned nothing, load a broader set for client filter
   if (q && items.length === 0) {
     items = await prisma.item.findMany({
       where: { isActive: true },
@@ -52,12 +52,13 @@ export async function GET(req: NextRequest) {
   }
 
   if (qNorm) {
+    // Strict AND: every query token must match (score is 0 otherwise)
     items = items
       .map((it) => ({
         it,
         score: scoreArabicSearch(itemSearchBlob(it), q),
       }))
-      .filter(({ score, it }) => score > 0 || matchesArabicSearch(itemSearchBlob(it), qNorm))
+      .filter(({ score }) => score > 0)
       .sort((a, b) => b.score - a.score)
       .slice(0, 40)
       .map(({ it }) => it)
