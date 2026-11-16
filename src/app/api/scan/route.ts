@@ -50,7 +50,7 @@ export async function POST(req: NextRequest) {
 
     if (!qrCode || typeof qrCode !== "string") {
       return NextResponse.json(
-        { error: "رمز QR مطلوب", status: "BAD_REQUEST" },
+        { error: "رمز الباركود مطلوب", status: "BAD_REQUEST" },
         { status: 400 }
       )
     }
@@ -59,85 +59,115 @@ export async function POST(req: NextRequest) {
 
     // Lookup mode (no stocktake session) — inventory first, then external barcode DB
     if (!sessionId) {
-      const resolved = await resolveBarcode(code)
-      if (resolved?.item) {
+      let carton: any = null
+      try {
+        const resolved = await resolveBarcode(code)
+        carton = resolved?.carton ?? null
+      } catch (dbErr: any) {
+        console.error("DB error:", dbErr)
+      }
+
+      if (carton) {
         try {
           await prisma.scanEvent.create({
             data: {
               qrCode: code,
+              cartonId: carton.id,
               userId: user.id,
-              result: "FOUND",
-              itemId: resolved.item.id,
-              cartonId: resolved.carton?.id || null,
+              result: carton.isActive ? "SUCCESS" : "INACTIVE",
             },
           })
-        } catch {}
+        } catch {
+          /* non-critical */
+        }
+
         return NextResponse.json({
-          status: "FOUND",
-          item: resolved.item,
-          carton: resolved.carton || null,
-          source: resolved.source || "inventory",
+          status: carton.isActive ? "FOUND" : "INACTIVE",
+          carton: {
+            id: carton.id,
+            qrCode: carton.qrCode,
+            cartonNumber: carton.cartonNumber,
+            quantity: Number(carton.quantity),
+            originalQty: Number(carton.originalQty),
+            status: carton.status,
+            item: {
+              sku: carton.item.sku,
+              nameEn: carton.item.nameEn,
+              nameAr: carton.item.nameAr,
+              uom: carton.item.uom,
+            },
+            batch: {
+              batchNumber: carton.batch.batchNumber,
+              sourceType: carton.batch.sourceType,
+            },
+            location: carton.location
+              ? {
+                  code: carton.location.code,
+                  warehouse: carton.location.warehouse.name,
+                }
+              : null,
+          },
         })
       }
 
+      // Not in inventory — try external product barcode databases
       const external = await lookupExternalBarcode(code)
-      if (external) {
-        try {
-          await prisma.scanEvent.create({
-            data: {
-              qrCode: code,
-              userId: user.id,
-              result: "EXTERNAL",
-            },
-          })
-        } catch {}
-        return NextResponse.json({
-          status: "EXTERNAL",
-          external,
-        })
-      }
 
       try {
         await prisma.scanEvent.create({
           data: {
             qrCode: code,
             userId: user.id,
-            result: "NOT_FOUND",
+            result: external ? "EXTERNAL" : "UNKNOWN",
           },
         })
-      } catch {}
+      } catch {
+        /* non-critical */
+      }
+
+      if (external) {
+        return NextResponse.json({
+          status: "EXTERNAL",
+          source: external.source,
+          product: {
+            barcode: external.barcode,
+            name: external.name,
+            nameAr: external.nameAr || null,
+            brand: external.brand || null,
+            category: external.category || null,
+            imageUrl: external.imageUrl || null,
+          },
+          message: "تم التعرف على المنتج من قاعدة بيانات خارجية (غير مسجل في مخزونك)",
+        })
+      }
+
       return NextResponse.json({
-        status: "NOT_FOUND",
-        error: "الصنف غير موجود",
+        status: "UNKNOWN",
+        message: "الباركود غير موجود في المخزون ولا في قواعد البيانات الخارجية",
+        qrCode: code,
       })
     }
 
-    // Stocktake counting mode
-    const qty = Number(countedQty)
-    if (!Number.isFinite(qty) || qty < 0) {
-      return NextResponse.json(
-        { error: "الكمية غير صالحة", status: "BAD_REQUEST" },
-        { status: 400 }
-      )
-    }
-
+    // Stocktake count mode
     const result = await recordCount({
       sessionId,
       qrCode: code,
-      countedQty: qty,
-      userId: user.id,
-      clientEventId: clientEventId || null,
-      notes: notes || null,
-      isDamaged: !!isDamaged,
+      countedQty: countedQty ?? 0,
+      countedById: user.id,
+      clientEventId,
+      notes,
+      isDamaged,
       mode: mode === "replace" ? "replace" : "add",
-      unit: unit === "KG" ? "KG" : "PCS",
+      unit: unit === "KG" || unit === "kg" ? "KG" : "PCS",
     })
-
     return NextResponse.json(result)
   } catch (e: any) {
-    console.error("scan error", e)
+    console.error("Scan API error:", e)
     return NextResponse.json(
-      { error: e?.message || "فشل المسح", status: "ERROR" },
+      {
+        error: e?.message || "حدث خطأ أثناء المسح",
+        status: "ERROR",
+      },
       { status: 500 }
     )
   }
