@@ -19,6 +19,10 @@ export async function GET(req: NextRequest) {
   const qNorm = arabicNormalize(q)
   const tokens = q ? searchTokens(q) : []
 
+  // Dash-code reverse: 30-150540 ↔ 150540-30 (common on printed labels)
+  const dashRev = q.match(/^(\d+)-(\d+)$/)
+  const skuVariants = dashRev ? [q, `${dashRev[2]}-${dashRev[1]}`] : q ? [q] : []
+
   // Build field OR helper for a single token/variant
   const fieldContains = (v: string) => [
     { sku: { contains: v, mode: "insensitive" as const } },
@@ -43,6 +47,22 @@ export async function GET(req: NextRequest) {
     whereExtra = { OR: variants.flatMap((v) => fieldContains(v)) }
   }
 
+  // Exact SKU / internalId hit (including reversed dash form) — highest priority
+  let exactItems: Awaited<ReturnType<typeof prisma.item.findMany>> = []
+  if (skuVariants.length) {
+    exactItems = await prisma.item.findMany({
+      where: {
+        isActive: true,
+        OR: [
+          { sku: { in: skuVariants } },
+          { internalId: { in: skuVariants } },
+        ],
+      },
+      include: { category: true, brand: true, _count: { select: { cartons: true } } },
+      take: 20,
+    })
+  }
+
   let items = await prisma.item.findMany({
     where: {
       isActive: true,
@@ -54,7 +74,7 @@ export async function GET(req: NextRequest) {
   })
 
   // Fallback: broader load then in-memory filter (covers synonym / normalize edge cases)
-  if (q && items.length === 0) {
+  if (q && items.length === 0 && exactItems.length === 0) {
     items = await prisma.item.findMany({
       where: { isActive: true },
       include: { category: true, brand: true, _count: { select: { cartons: true } } },
@@ -64,12 +84,28 @@ export async function GET(req: NextRequest) {
   }
 
   if (qNorm) {
-    items = items
+    const scored = items
       .map((it) => ({ it, score: scoreItemSearch(it, q) }))
       .filter(({ score }) => score > 0)
-      .sort((a, b) => b.score - a.score)
-      .slice(0, 40)
-      .map(({ it }) => it)
+
+    // Merge exact SKU matches at the top
+    const seen = new Set<string>()
+    const merged: typeof items = []
+    for (const it of exactItems) {
+      if (!seen.has(it.id)) {
+        seen.add(it.id)
+        merged.push(it)
+      }
+    }
+    for (const { it } of scored.sort((a, b) => b.score - a.score)) {
+      if (!seen.has(it.id)) {
+        seen.add(it.id)
+        merged.push(it)
+      }
+    }
+    items = merged.slice(0, 40)
+  } else if (exactItems.length) {
+    items = exactItems
   }
 
   return NextResponse.json({ items })
