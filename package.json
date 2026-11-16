@@ -11,8 +11,7 @@
     "db:push": "prisma db push",
     "db:seed": "tsx prisma/seed.ts",
     "db:studio": "prisma studio",
-    "db:reset": "prisma db push --force-reset && tsx prisma/seed.ts",
-    "postinstall": "prisma generate"
+    "db:reset": "prisma db push --force-reset && tsx prisma/seed.ts"
   },
   "dependencies": {
     "next": "16.4.3",
@@ -32,7 +31,8 @@
     "tailwind-merge": "^2.5.4",
     "lucide-react": "^0.460.0",
     "@simplewebauthn/server": "^11.0.0",
-    "@simplewebauthn/browser": "^11.0.0"
+    "@simplewebauthn/browser": "^11.0.0",
+    "tesseract.js": "^5.1.1"
   },
   "devDependencies": {
     "@types/node": "^20",
