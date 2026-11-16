@@ -1,127 +1,111 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions, hasPermission } from "@/lib/auth/options"
+import { ensurePermissionsLoaded } from "@/lib/auth/permissions"
 import prisma from "@/lib/prisma"
 import { normalizeBarcode } from "@/lib/services/resolveBarcode"
 
+/**
+ * Link a physical barcode to an existing item, or create a new item + carton.
+ * Body:
+ *  - qrCode (required)
+ *  - itemId (optional) — link to existing
+ *  - nameAr, nameEn, sku (optional) — create new if no itemId
+ *  - quantity (optional)
+ */
 export async function POST(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions)
     if (!session?.user) {
       return NextResponse.json({ error: "يجب تسجيل الدخول" }, { status: 401 })
     }
+    await ensurePermissionsLoaded(prisma as any)
     const user = session.user as any
-    if (
-      !hasPermission(user.role, "items:write") &&
-      !hasPermission(user.role, "*") &&
-      !hasPermission(user.role, "scan:perform")
-    ) {
+    const role = String(user?.role || "")
+    const allowed =
+      role === "SYSTEM_ADMIN" ||
+      hasPermission(role, "*") ||
+      hasPermission(role, "items:write") ||
+      hasPermission(role, "scan:perform") ||
+      hasPermission(role, "stocktake:count") ||
+      hasPermission(role, "stocktake:manage")
+    if (!allowed) {
       return NextResponse.json({ error: "ليس لديك صلاحية" }, { status: 403 })
     }
 
     const body = await req.json()
-    const qrCode =
-      normalizeBarcode(String(body.qrCode || "")) || String(body.qrCode || "").trim()
+    const qrCode = normalizeBarcode(String(body.qrCode || "")) || String(body.qrCode || "").trim()
     if (!qrCode) {
       return NextResponse.json({ error: "الباركود مطلوب" }, { status: 400 })
     }
 
+    // Already linked?
     const existingCarton = await prisma.carton.findUnique({
       where: { qrCode },
       include: { item: true },
     })
-    if (existingCarton?.isActive) {
+    if (existingCarton) {
       return NextResponse.json({
         ok: true,
         alreadyLinked: true,
+        carton: existingCarton,
         item: existingCarton.item,
-        carton: { id: existingCarton.id, qrCode: existingCarton.qrCode },
       })
     }
 
-    let item = body.itemId
-      ? await prisma.item.findUnique({ where: { id: body.itemId } })
+    let itemId = body.itemId ? String(body.itemId) : null
+    let item = itemId
+      ? await prisma.item.findUnique({ where: { id: itemId } })
       : null
 
-    if (!item) {
-      const nameAr = String(body.nameAr || "").trim()
-      if (!nameAr) {
-        return NextResponse.json(
-          { error: "اختر صنفاً موجوداً أو أدخل اسم الصنف" },
-          { status: 400 }
-        )
-      }
-      let sku = String(body.sku || qrCode).trim().slice(0, 80)
-      const skuExists = await prisma.item.findFirst({ where: { sku } })
-      if (skuExists) {
-        sku = `${sku}-${Date.now().toString(36)}`.slice(0, 80)
-      }
+    if (!item && (body.nameAr || body.sku)) {
+      const sku = String(body.sku || `AUTO-${Date.now()}`).trim()
+      const nameAr = String(body.nameAr || sku).trim()
+      const nameEn = String(body.nameEn || nameAr).trim()
       item = await prisma.item.create({
         data: {
           sku,
           internalId: sku,
           nameAr,
-          nameEn: String(body.nameEn || nameAr).trim(),
+          nameEn,
           sourceType: body.sourceType || "FACTORY",
           uom: body.uom || "PCS",
           unitsPerCarton: Number(body.unitsPerCarton) || 1,
-          costPerUnit: 0,
-          currency: "USD",
-          isActive: true,
+          costPerUnit: Number(body.costPerUnit) || 0,
+          currency: body.currency || "USD",
           createdById: user.id,
-        },
-      })
-    }
-
-    let batch = await prisma.batch.findFirst({ where: { itemId: item.id } })
-    if (!batch) {
-      batch = await prisma.batch.create({
-        data: {
-          itemId: item.id,
-          batchNumber: `B-${item.sku}`.slice(0, 60),
-          sourceType: item.sourceType,
           isActive: true,
         },
       })
+      itemId = item.id
     }
 
-    const qty = Number(body.quantity) || item.unitsPerCarton || 1
-    const carton = existingCarton
-      ? await prisma.carton.update({
-          where: { id: existingCarton.id },
-          data: {
-            itemId: item.id,
-            batchId: batch.id,
-            isActive: true,
-            status: "AVAILABLE",
-            quantity: qty,
-          },
-          include: { item: true },
-        })
-      : await prisma.carton.create({
-          data: {
-            qrCode,
-            cartonNumber: `CTN-${qrCode}`.slice(0, 60),
-            itemId: item.id,
-            batchId: batch.id,
-            quantity: qty,
-            originalQty: qty,
-            status: "AVAILABLE",
-            isActive: true,
-          },
-          include: { item: true },
-        })
+    if (!item || !itemId) {
+      return NextResponse.json({ error: "الصنف مطلوب" }, { status: 400 })
+    }
 
-    return NextResponse.json({
-      ok: true,
-      item: {
-        id: item.id,
-        sku: item.sku,
-        nameAr: item.nameAr,
-        nameEn: item.nameEn,
+    const batch = await prisma.batch.create({
+      data: {
+        itemId,
+        batchNumber: body.batchNumber || `B-${Date.now()}`,
+        sourceType: item.sourceType,
       },
-      carton: { id: carton.id, qrCode: carton.qrCode },
     })
+
+    const carton = await prisma.carton.create({
+      data: {
+        qrCode,
+        cartonNumber: body.cartonNumber || "CTN-1",
+        itemId,
+        batchId: batch.id,
+        quantity: Number(body.quantity) || Number(item.unitsPerCarton) || 1,
+        originalQty: Number(body.quantity) || Number(item.unitsPerCarton) || 1,
+        status: "AVAILABLE",
+      },
+      include: { item: true },
+    })
+
+    return NextResponse.json({ ok: true, carton, item: carton.item })
   } catch (e: any) {
     console.error(e)
     return NextResponse.json({ error: e?.message || "فشل الربط" }, { status: 500 })
