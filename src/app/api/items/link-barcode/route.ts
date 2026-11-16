@@ -3,15 +3,24 @@ import { getServerSession } from "next-auth"
 import { authOptions, hasPermission } from "@/lib/auth/options"
 import { ensurePermissionsLoaded } from "@/lib/auth/permissions"
 import prisma from "@/lib/prisma"
-import { normalizeBarcode } from "@/lib/services/resolveBarcode"
+import {
+  barcodeVariants,
+  ensureVariantCartons,
+  normalizeBarcode,
+} from "@/lib/services/resolveBarcode"
+
+function preferredCode(raw: string): string {
+  const variants = barcodeVariants(raw)
+  // Prefer short dash codes like 7-150023
+  const dash = variants.find((v) => /^\d{1,6}-\d{2,10}$/.test(v))
+  if (dash) return dash
+  const compact = variants.find((v) => v.length <= 40)
+  return (compact || normalizeBarcode(raw) || raw).slice(0, 190)
+}
 
 /**
  * Link a physical barcode to an existing item, or create a new item + carton.
- * Body:
- *  - qrCode (required)
- *  - itemId (optional) — link to existing
- *  - nameAr, nameEn, sku (optional) — create new if no itemId
- *  - quantity (optional)
+ * Saves ALL barcode variants (original, reverse dash, extracted) so re-scan always finds the item.
  */
 export async function POST(req: NextRequest) {
   try {
@@ -34,78 +43,144 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json()
-    const qrCode = normalizeBarcode(String(body.qrCode || "")) || String(body.qrCode || "").trim()
-    if (!qrCode) {
+    const rawQr = String(body.qrCode || "").trim()
+    if (!rawQr) {
       return NextResponse.json({ error: "الباركود مطلوب" }, { status: 400 })
     }
 
-    // Already linked?
-    const existingCarton = await prisma.carton.findUnique({
-      where: { qrCode },
-      include: { item: true },
-    })
-    if (existingCarton) {
-      return NextResponse.json({
-        ok: true,
-        alreadyLinked: true,
-        carton: existingCarton,
-        item: existingCarton.item,
+    const variants = barcodeVariants(rawQr)
+    const primaryCode = preferredCode(rawQr)
+
+    // Already linked under any variant?
+    for (const code of variants) {
+      const existingCarton = await prisma.carton.findUnique({
+        where: { qrCode: code },
+        include: { item: true },
       })
+      if (existingCarton?.isActive && existingCarton.item) {
+        let batch = await prisma.batch.findFirst({ where: { itemId: existingCarton.itemId } })
+        if (batch) {
+          await ensureVariantCartons(
+            existingCarton.itemId,
+            batch.id,
+            variants,
+            Number(existingCarton.quantity) || 1
+          )
+        }
+        return NextResponse.json({
+          ok: true,
+          alreadyLinked: true,
+          item: {
+            id: existingCarton.item.id,
+            sku: existingCarton.item.sku,
+            nameAr: existingCarton.item.nameAr,
+            nameEn: existingCarton.item.nameEn,
+          },
+          carton: { id: existingCarton.id, qrCode: existingCarton.qrCode },
+        })
+      }
     }
 
-    let itemId = body.itemId ? String(body.itemId) : null
-    let item = itemId
-      ? await prisma.item.findUnique({ where: { id: itemId } })
-      : null
+    let item =
+      body.itemId
+        ? await prisma.item.findUnique({ where: { id: String(body.itemId) } })
+        : null
 
-    if (!item && (body.nameAr || body.sku)) {
-      const sku = String(body.sku || `AUTO-${Date.now()}`).trim()
-      const nameAr = String(body.nameAr || sku).trim()
-      const nameEn = String(body.nameEn || nameAr).trim()
+    if (!item) {
+      const nameAr = String(body.nameAr || "").trim()
+      if (!nameAr) {
+        return NextResponse.json(
+          { error: "اختر صنفاً موجوداً أو أدخل اسم الصنف" },
+          { status: 400 }
+        )
+      }
+      let sku = String(body.sku || primaryCode).trim().slice(0, 80)
+      const skuExists = await prisma.item.findFirst({ where: { sku } })
+      if (skuExists) {
+        sku = `${sku}-${Date.now().toString(36)}`.slice(0, 80)
+      }
       item = await prisma.item.create({
         data: {
           sku,
           internalId: sku,
           nameAr,
-          nameEn,
+          nameEn: String(body.nameEn || nameAr).trim(),
           sourceType: body.sourceType || "FACTORY",
           uom: body.uom || "PCS",
           unitsPerCarton: Number(body.unitsPerCarton) || 1,
-          costPerUnit: Number(body.costPerUnit) || 0,
-          currency: body.currency || "USD",
+          costPerUnit: 0,
+          currency: "USD",
+          isActive: true,
           createdById: user.id,
+        },
+      })
+    }
+
+    let batch = await prisma.batch.findFirst({ where: { itemId: item.id } })
+    if (!batch) {
+      batch = await prisma.batch.create({
+        data: {
+          itemId: item.id,
+          batchNumber: `B-${item.sku}`.slice(0, 60),
+          sourceType: item.sourceType,
           isActive: true,
         },
       })
-      itemId = item.id
     }
 
-    if (!item || !itemId) {
-      return NextResponse.json({ error: "الصنف مطلوب" }, { status: 400 })
+    const qty = Number(body.quantity) || item.unitsPerCarton || 1
+
+    // Primary carton
+    let carton = await prisma.carton.findUnique({ where: { qrCode: primaryCode } })
+    if (carton) {
+      carton = await prisma.carton.update({
+        where: { id: carton.id },
+        data: {
+          itemId: item.id,
+          batchId: batch.id,
+          isActive: true,
+          status: "AVAILABLE",
+          quantity: qty,
+        },
+      })
+    } else {
+      carton = await prisma.carton.create({
+        data: {
+          qrCode: primaryCode,
+          cartonNumber: `CTN-${primaryCode}`.slice(0, 60),
+          itemId: item.id,
+          batchId: batch.id,
+          quantity: qty,
+          originalQty: qty,
+          status: "AVAILABLE",
+          isActive: true,
+        },
+      })
     }
 
-    const batch = await prisma.batch.create({
-      data: {
-        itemId,
-        batchNumber: body.batchNumber || `B-${Date.now()}`,
-        sourceType: item.sourceType,
-      },
-    })
+    // Save ALL variants so re-scan finds the item
+    await ensureVariantCartons(item.id, batch.id, variants, qty)
 
-    const carton = await prisma.carton.create({
-      data: {
-        qrCode,
-        cartonNumber: body.cartonNumber || "CTN-1",
-        itemId,
-        batchId: batch.id,
-        quantity: Number(body.quantity) || Number(item.unitsPerCarton) || 1,
-        originalQty: Number(body.quantity) || Number(item.unitsPerCarton) || 1,
-        status: "AVAILABLE",
-      },
-      include: { item: true },
-    })
+    if (item.sku && item.sku !== primaryCode) {
+      await ensureVariantCartons(
+        item.id,
+        batch.id,
+        [item.sku, item.internalId].filter(Boolean) as string[],
+        qty
+      )
+    }
 
-    return NextResponse.json({ ok: true, carton, item: carton.item })
+    return NextResponse.json({
+      ok: true,
+      item: {
+        id: item.id,
+        sku: item.sku,
+        nameAr: item.nameAr,
+        nameEn: item.nameEn,
+      },
+      carton: { id: carton.id, qrCode: carton.qrCode },
+      linkedCodes: variants.slice(0, 8),
+    })
   } catch (e: any) {
     console.error(e)
     return NextResponse.json({ error: e?.message || "فشل الربط" }, { status: 500 })

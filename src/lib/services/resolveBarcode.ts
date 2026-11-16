@@ -1,12 +1,17 @@
 import prisma from "@/lib/prisma"
 import { extractProductCode } from "@/lib/barcodeExtract"
 
-/** Normalize scanned barcode text */
+/** Light normalize: keep spaces (needed for free-text QR labels) */
 export function normalizeBarcode(raw: string): string {
   return String(raw || "")
-    .replace(/[\r\n\t]+/g, " ")
-    .replace(/\s+/g, "")
+replace(/[\r\n\t]+/g, " ")
+    .replace(/\s+/g, " ")
     .trim()
+}
+
+/** Compact form without spaces (legacy scans / pure codes) */
+export function compactBarcode(raw: string): string {
+  return normalizeBarcode(raw).replace(/\s+/g, "")
 }
 
 /**
@@ -21,27 +26,31 @@ export function reverseDashCode(code: string): string | null {
 
 /**
  * Build lookup variants for a scanned/typed code.
- * Always includes original + reversed dash form + extracted product code forms.
+ * Includes: original, compact, reversed dash, extracted product codes.
  */
 export function barcodeVariants(raw: string): string[] {
   const set = new Set<string>()
   const add = (v: string | null | undefined) => {
     const n = normalizeBarcode(v || "")
-    if (n) set.add(n)
-    const rev = reverseDashCode(n)
+    if (!n) return
+    set.add(n)
+    const compact = n.replace(/\s+/g, "")
+    if (compact) set.add(compact)
+    const rev = reverseDashCode(compact)
     if (rev) set.add(rev)
+    const rev2 = reverseDashCode(n)
+    if (rev2) set.add(rev2)
   }
 
   add(raw)
   add(extractProductCode(raw))
 
-  // Also pull every N-N pattern from free text and reverse each
   const text = String(raw || "").replace(/[\r\n]+/g, " ")
   for (const m of text.matchAll(/\b(\d{1,6}-\d{2,10})\b/g)) {
     add(m[1])
   }
 
-  return [...set]
+  return [...set].filter((s) => s.length > 0)
 }
 
 const cartonInclude = {
@@ -52,11 +61,6 @@ const cartonInclude = {
 
 /**
  * Resolve a scanned code to an inventory carton/item.
- * Tries original and reversed dash codes (30-150540 and 150540-30).
- * 1) Exact carton QR
- * 2) Item SKU / internalId
- * 3) Code found inside item name
- * If found only on Item, auto-links a Carton so future scans are instant.
  */
 export async function resolveBarcode(rawCode: string) {
   const primary = normalizeBarcode(rawCode)
@@ -71,10 +75,12 @@ export async function resolveBarcode(rawCode: string) {
       where: { qrCode: code },
       include: cartonInclude,
     })
-    if (carton) return { carton, matchedBy: "carton_qr" as const, code }
+    if (carton && carton.isActive !== false) {
+      return { carton, matchedBy: "carton_qr" as const, code }
+    }
   }
 
-  // 2. Item SKU or internalId (any variant)
+  // 2. Item SKU or internalId
   let item =
     (await prisma.item.findFirst({
       where: {
@@ -87,7 +93,7 @@ export async function resolveBarcode(rawCode: string) {
       include: { category: true, brand: true },
     })) || null
 
-  // 3. Barcode / number appears in item name (prefer longer variants first)
+  // 3. Code in item name
   if (!item) {
     const nameVariants = [...variants].sort((a, b) => b.length - a.length)
     for (const code of nameVariants) {
@@ -109,7 +115,7 @@ export async function resolveBarcode(rawCode: string) {
     }
   }
 
-  // 4. Long numeric barcodes — try last 12 digits
+  // 4. Long numeric
   if (!item) {
     for (const code of variants) {
       if (!/^\d{12,14}$/.test(code)) continue
@@ -127,12 +133,13 @@ export async function resolveBarcode(rawCode: string) {
 
   if (!item) return null
 
-  // Prefer linking carton under the item's canonical SKU if it matches a variant;
-  // otherwise keep the primary scanned code so the physical label still resolves.
-  const linkCode =
-    variants.find((v) => v === item!.sku || v === item!.internalId) || primary
+  const linkCode = (
+    variants.find((v) => v === item!.sku || v === item!.internalId) ||
+    extractProductCode(rawCode) ||
+    compactBarcode(primary) ||
+    primary
+  ).slice(0, 190)
 
-  // Auto-link: create batch+carton if missing so next scan is exact
   let batch = await prisma.batch.findFirst({ where: { itemId: item.id } })
   if (!batch) {
     batch = await prisma.batch.create({
@@ -151,7 +158,6 @@ export async function resolveBarcode(rawCode: string) {
   })
 
   if (!carton) {
-    // Also check if any variant already has a carton for this item
     for (const code of variants) {
       const existing = await prisma.carton.findUnique({
         where: { qrCode: code },
@@ -180,5 +186,54 @@ export async function resolveBarcode(rawCode: string) {
     })
   }
 
-  return { carton, matchedBy: "item_lookup" as const, code: linkCode }
+  await ensureVariantCartons(item.id, batch.id, variants, Number(item.unitsPerCarton) || 1)
+
+  return { carton, matchedBy: "item_lookup" as const, code: carton.qrCode }
+}
+
+/** Create alias cartons so every scan form finds the same item */
+export async function ensureVariantCartons(
+  itemId: string,
+  batchId: string,
+  variants: string[],
+  qty: number
+) {
+  const aliases = variants
+    .map((v) => v.slice(0, 190))
+    .filter((v) => v.length >= 3 && v.length <= 80)
+    .slice(0, 8)
+
+  for (const code of aliases) {
+    try {
+      const existing = await prisma.carton.findUnique({ where: { qrCode: code } })
+      if (existing) {
+        if (existing.itemId !== itemId || existing.isActive === false) {
+          await prisma.carton.update({
+            where: { id: existing.id },
+            data: {
+              itemId,
+              batchId,
+              isActive: true,
+              status: "AVAILABLE",
+            },
+          })
+        }
+        continue
+      }
+      await prisma.carton.create({
+        data: {
+          qrCode: code,
+          cartonNumber: `CTN-${code}`.slice(0, 60),
+          itemId,
+          batchId,
+          quantity: qty,
+          originalQty: qty,
+          status: "AVAILABLE",
+          isActive: true,
+        },
+      })
+    } catch {
+      /* unique race */
+    }
+  }
 }
