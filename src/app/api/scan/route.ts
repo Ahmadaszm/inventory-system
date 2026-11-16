@@ -61,7 +61,8 @@ export async function POST(req: NextRequest) {
     if (!sessionId) {
       let carton: any = null
       try {
-        const resolved = await resolveBarcode(code)
+        // Pass RAW qrCode so free-text labels can extract product codes
+        const resolved = await resolveBarcode(qrCode)
         carton = resolved?.carton ?? null
       } catch (dbErr: any) {
         console.error("DB error:", dbErr)
@@ -82,7 +83,8 @@ export async function POST(req: NextRequest) {
         }
 
         return NextResponse.json({
-          status: carton.isActive ? "FOUND" : "INACTIVE",
+          status: carton.isActive !== false ? "FOUND" : "INACTIVE",
+          source: "inventory",
           carton: {
             id: carton.id,
             qrCode: carton.qrCode,
@@ -96,10 +98,12 @@ export async function POST(req: NextRequest) {
               nameAr: carton.item.nameAr,
               uom: carton.item.uom,
             },
-            batch: {
-              batchNumber: carton.batch.batchNumber,
-              sourceType: carton.batch.sourceType,
-            },
+            batch: carton.batch
+              ? {
+                  batchNumber: carton.batch.batchNumber,
+                  sourceType: carton.batch.sourceType,
+                }
+              : null,
             location: carton.location
               ? {
                   code: carton.location.code,
@@ -148,10 +152,10 @@ export async function POST(req: NextRequest) {
       })
     }
 
-    // Stocktake count mode
+    // Stocktake count mode — pass raw qrCode for better resolve variants
     const result = await recordCount({
       sessionId,
-      qrCode: code,
+      qrCode: qrCode,
       countedQty: countedQty ?? 0,
       countedById: user.id,
       clientEventId,
