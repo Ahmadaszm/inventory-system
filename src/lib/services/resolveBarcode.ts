@@ -4,7 +4,7 @@ import { extractProductCode } from "@/lib/barcodeExtract"
 /** Light normalize: keep spaces (needed for free-text QR labels) */
 export function normalizeBarcode(raw: string): string {
   return String(raw || "")
-replace(/[\r\n\t]+/g, " ")
+    .replace(/[\r\n\t]+/g, " ")
     .replace(/\s+/g, " ")
     .trim()
 }
