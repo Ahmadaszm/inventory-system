@@ -16,37 +16,52 @@ function appendScanLine(
     .map((l) => l.trim())
     .filter((l) => l && !l.startsWith("SCAN|"))
   if (mode === "replace") {
-    return [...other, line].join("\n")
+    // replace only clears previous SCANs of the SAME unit; keep the other unit's history
+    const scans = (prevNotes || "")
+      .split("\n")
+      .map((l) => l.trim())
+      .filter((l) => {
+        if (!l.startsWith("SCAN|")) return false
+        const parts = l.split("|")
+        const lineUnit = parts[2] === "KG" ? "KG" : "PCS"
+        return lineUnit !== u
+      })
+    return [...other, ...scans, line].join("\n")
   }
   const scans = (prevNotes || "")
     .split("\n")
     .map((l) => l.trim())
     .filter((l) => l.startsWith("SCAN|"))
   scans.push(line)
-  return [...other, ...scans.slice(-50)].join("\n")
+  return [...other, ...scans.slice(-80)].join("\n")
 }
 
 export function parseUnitFromNotes(notes?: string | null): "PCS" | "KG" {
   if (!notes) return "PCS"
-  if (/وحدة:\s*كجم|\bKG\b/i.test(notes)) return "KG"
+  if (/وحدة:\s*كجم|\bKG\b|كجم|كيلو/i.test(notes)) return "KG"
   return "PCS"
 }
 
-/** Sum quantities by unit from SCAN lines (for mixed PCS/KG) */
-function totalsFromNotes(notes: string | null | undefined, fallbackQty: number) {
+/** Sum quantities by unit from SCAN lines — NEVER mix PCS + KG into one number */
+export function totalsFromNotes(notes: string | null | undefined, fallbackQty: number) {
   const lines = (notes || "")
     .split("\n")
     .map((l) => l.trim())
     .filter((l) => l.startsWith("SCAN|"))
-  if (lines.length === 0) return { pcs: fallbackQty, kg: 0, primary: fallbackQty }
+  if (lines.length === 0) {
+    const unit = parseUnitFromNotes(notes)
+    return unit === "KG"
+      ? { pcs: 0, kg: fallbackQty, primary: fallbackQty }
+      : { pcs: fallbackQty, kg: 0, primary: fallbackQty }
+  }
   let pcs = 0
   let kg = 0
   for (const l of lines) {
     const parts = l.split("|")
     const flag = parts[1] || "+0"
-    const qty = Math.abs(parseFloat(flag.replace(/^[+=]/, "")) || 0)
-    const isReplace = flag.startsWith("=")
-    const u = parts[2] === "KG" ? "KG" : "PCS"
+    const qty = Math.abs(parseFloat(String(flag).replace(/^[+=]/, "")) || 0)
+    const isReplace = String(flag).startsWith("=")
+    const u = parts[2] === "KG" || parts[2] === "kg" ? "KG" : "PCS"
     if (isReplace) {
       if (u === "KG") kg = qty
       else pcs = qty
@@ -57,6 +72,17 @@ function totalsFromNotes(notes: string | null | undefined, fallbackQty: number) 
   }
   const primary = pcs > 0 ? pcs : kg
   return { pcs, kg, primary }
+}
+
+/** Human-readable total that never mixes PCS and KG into one number */
+export function formatDualTotal(pcs: number, kg: number, fallback?: number): string {
+  const p = Math.round(pcs * 1000) / 1000
+  const k = Math.round(kg * 1000) / 1000
+  if (p > 0 && k > 0) return `${p} قطعة + ${k} كجم`
+  if (k > 0) return `${k} كجم`
+  if (p > 0) return `${p} قطعة`
+  if (fallback != null && fallback !== 0) return String(fallback)
+  return "0"
 }
 
 export async function createStocktakeSession(params: {
