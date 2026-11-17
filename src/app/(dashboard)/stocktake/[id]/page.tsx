@@ -5,6 +5,7 @@ import prisma from "@/lib/prisma"
 import Link from "next/link"
 import { StartStocktakeButton } from "./StartButton"
 import { extractProductCode, cleanQrText } from "@/lib/barcodeExtract"
+import { totalsFromNotes, formatDualTotal } from "@/lib/services/stocktake"
 import { CompleteSessionButton } from "./CompleteButton"
 import { ApproveSessionButton } from "./ApproveButton"
 
@@ -152,6 +153,8 @@ export default async function StocktakeDetailPage({
                     <th className="px-4 py-2 text-right">الوقت</th>
                     <th className="px-4 py-2 text-right">الباركود</th>
                     <th className="px-4 py-2 text-right">اسم الصنف</th>
+                    <th className="px-4 py-2 text-right">قطعة</th>
+                    <th className="px-4 py-2 text-right">كجم</th>
                     <th className="px-4 py-2 text-right">الكمية</th>
                     <th className="px-4 py-2 text-right">الحالة</th>
                     <th className="px-4 py-2 text-right">القائم بالجرد</th>
@@ -163,6 +166,9 @@ export default async function StocktakeDetailPage({
                     const code = r.item?.sku || extractProductCode(full) || "—"
                     const name =
                       r.item?.nameAr || r.item?.nameEn || cleanQrText(full) || "—"
+                    const { pcs, kg } = totalsFromNotes(r.notes, Number(r.countedQty))
+                    const pcsN = Math.round(pcs * 1000) / 1000
+                    const kgN = Math.round(kg * 1000) / 1000
                     return (
                       <tr key={r.id} className="hover:bg-slate-50">
                         <td className="px-4 py-2 text-slate-500 whitespace-nowrap">
@@ -176,7 +182,13 @@ export default async function StocktakeDetailPage({
                         </td>
                         <td className="px-4 py-2 max-w-[320px]">{name}</td>
                         <td className="px-4 py-2 font-bold text-blue-700">
-                          {Number(r.countedQty)}
+                          {pcsN > 0 ? pcsN : "—"}
+                        </td>
+                        <td className="px-4 py-2 font-bold text-emerald-700">
+                          {kgN > 0 ? kgN : "—"}
+                        </td>
+                        <td className="px-4 py-2 font-semibold text-slate-800 whitespace-nowrap">
+                          {formatDualTotal(pcs, kg, Number(r.countedQty))}
                         </td>
                         <td className="px-4 py-2">
                           {r.isUnknownQr ? (
