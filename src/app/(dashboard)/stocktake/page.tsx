@@ -56,10 +56,24 @@ export default async function StocktakeListPage() {
             {isAr ? "الجرد الدوري والمفاجئ" : "Periodic & Surprise counts"}
           </p>
         </div>
-        <div className="flex gap-3">
-          <Link href="/dashboard" className="text-sm text-slate-600 hover:text-blue-600">
+        <div className="flex flex-wrap gap-2 items-center justify-end">
+          <Link href="/dashboard" className="text-sm text-slate-600 hover:text-blue-600 px-2 py-2">
             {isAr ? "لوحة التحكم" : "Dashboard"}
           </Link>
+          <a
+            href="/api/export/stocktake/consolidated?status=closed"
+            className="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-2 rounded-lg text-sm font-medium"
+            title={isAr ? "تجميع كل الأصناف من الجلسات المكتملة/المغلقة في ملف Excel واحد" : "Merge finished sessions into one Excel"}
+          >
+            {isAr ? "📦 تصدير مجمع (مكتمل)" : "📦 Consolidated export"}
+          </a>
+          <a
+            href="/api/export/stocktake/consolidated?status=all"
+            className="bg-slate-700 hover:bg-slate-800 text-white px-3 py-2 rounded-lg text-sm font-medium"
+            title={isAr ? "تجميع من كل الجلسات غير الملغاة بما فيها الجارية" : "All non-cancelled sessions"}
+          >
+            {isAr ? "تصدير مجمع (الكل)" : "Export all"}
+          </a>
           <Link
             href="/stocktake/new"
             className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700"
