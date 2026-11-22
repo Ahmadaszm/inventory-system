@@ -12,6 +12,8 @@ export type Role =
   | "APPROVER_AUDITOR"
 
 export const authOptions: NextAuthOptions = {
+  // Allow any production host (custom domain / vercel URL) — helps mobile carriers
+  trustHost: true,
   providers: [
     CredentialsProvider({
       name: "Credentials",
