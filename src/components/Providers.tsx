@@ -43,7 +43,11 @@ export function Providers({ children }: { children: React.ReactNode }) {
   }, [])
 
   return (
-    <SessionProvider refetchInterval={0} refetchOnWindowFocus={false}>
+    <SessionProvider
+      // Silent refresh every 10 minutes while tab is open — prevents mid-work logout
+      refetchInterval={10 * 60}
+      refetchOnWindowFocus={true}
+    >
       {children}
       <InstallPrompt />
     </SessionProvider>
