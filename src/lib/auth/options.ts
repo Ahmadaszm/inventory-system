@@ -93,9 +93,30 @@ export const authOptions: NextAuthOptions = {
   pages: {
     signIn: "/login",
   },
+  // Long-lived sessions for warehouse counters (JWT auto-refreshes while app is open)
   session: {
     strategy: "jwt",
-    maxAge: 8 * 60 * 60,
+    maxAge: 30 * 24 * 60 * 60, // 30 days
+    updateAge: 12 * 60 * 60, // re-issue JWT every 12 hours of activity
+  },
+  jwt: {
+    maxAge: 30 * 24 * 60 * 60,
+  },
+  // Stable cookies on mobile browsers / cellular networks
+  cookies: {
+    sessionToken: {
+      name:
+        process.env.NODE_ENV === "production"
+          ? "__Secure-next-auth.session-token"
+          : "next-auth.session-token",
+      options: {
+        httpOnly: true,
+        sameSite: "lax",
+        path: "/",
+        secure: process.env.NODE_ENV === "production",
+        maxAge: 30 * 24 * 60 * 60,
+      },
+    },
   },
   secret: process.env.NEXTAUTH_SECRET,
 }
